@@ -1,0 +1,177 @@
+"""Gateway (H_imp^(0)) quadratic model: impurity d + g-bath + h-ghosts.
+
+This is the bridge model where both bath and ghost sectors coexist
+but there is NO Hubbard U interaction. It is fully quadratic, so all
+Green's functions are obtained by matrix inversion / Schur complement.
+
+The inverse resolvent is a (1 + M_g + M_h) x (1 + M_g + M_h) matrix
+with the d-orbital in position 0:
+
+    G_hat^{-1} = [[A,     -V^*,    -W^*  ],
+                  [-V,     D_g,     0     ],
+                  [-W,     0,       D_h   ]]
+
+where:
+    A = iw + mu - eps_d - sigma_inf
+    (D_g)_{ll} = iw - eps_l
+    (D_h)_{ll} = iw - eta_l
+
+The d-d Green's function via Schur complement:
+    G_dd^(0) = 1 / (A - Delta(iw) - Sigma^(h)(iw))
+            = 1 / (iw + mu - eps_d - sigma_inf - Delta(iw) - Sigma^(h)(iw))
+"""
+
+import numpy as np
+from .matsubara import fermi_function
+
+
+def gateway_greens_functions(iw: np.ndarray, mu: float, eps_d: float,
+                              sigma_inf: float,
+                              V: np.ndarray, eps: np.ndarray,
+                              W: np.ndarray, eta: np.ndarray) -> dict:
+    """Compute all gateway model Green's function blocks.
+
+    Parameters
+    ----------
+    iw : array, shape (N,)
+        Imaginary frequencies (1j * w_n).
+    mu, eps_d, sigma_inf : float
+        Chemical potential, impurity level, static self-energy.
+    V, eps : arrays, shape (M_g,)
+        Bath hybridization amplitudes and energies.
+    W, eta : arrays, shape (M_h,)
+        Ghost hybridization amplitudes and energies.
+
+    Returns
+    -------
+    dict with keys:
+        'dd': array (N,) — G_dd^(0)
+        'gd': array (M_g, N) — G_{g_l, d}^(0)
+        'hd': array (M_h, N) — G_{h_l, d}^(0)
+        'gg': array (M_g, N) — G_{g_l, g_l}^(0) (diagonal)
+        'hh': array (M_h, N) — G_{h_l, h_l}^(0) (diagonal)
+    """
+    N = len(iw)
+    M_g = len(eps)
+    M_h = len(eta)
+
+    # Bath and ghost propagators
+    # denom_g[l, n] = 1 / (iw_n - eps_l)
+    denom_g = 1.0 / (iw[None, :] - eps[:, None])  # (M_g, N)
+    denom_h = 1.0 / (iw[None, :] - eta[:, None])  # (M_h, N)
+
+    # Hybridization and ghost self-energy
+    delta = np.sum(np.abs(V[:, None])**2 * denom_g, axis=0)  # (N,)
+    sigma_h = np.sum(np.abs(W[:, None])**2 * denom_h, axis=0)  # (N,)
+
+    # d-d Green's function
+    G_dd = 1.0 / (iw + mu - eps_d - sigma_inf - delta - sigma_h)  # (N,)
+
+    # Off-diagonal: G_{g_l, d} = V_l / (iw - eps_l) * G_dd
+    G_gd = V[:, None] * denom_g * G_dd[None, :]  # (M_g, N)
+
+    # Off-diagonal: G_{h_l, d} = W_l / (iw - eta_l) * G_dd
+    G_hd = W[:, None] * denom_h * G_dd[None, :]  # (M_h, N)
+
+    # Diagonal bath: G_{g_l, g_l} = 1/(iw - eps_l) + |V_l|^2/(iw - eps_l)^2 * G_dd
+    G_gg = denom_g + (np.abs(V)**2)[:, None] * denom_g**2 * G_dd[None, :]  # (M_g, N)
+
+    # Diagonal ghost: G_{h_l, h_l} = 1/(iw - eta_l) + |W_l|^2/(iw - eta_l)^2 * G_dd
+    G_hh = denom_h + (np.abs(W)**2)[:, None] * denom_h**2 * G_dd[None, :]  # (M_h, N)
+
+    return {
+        'dd': G_dd,
+        'gd': G_gd, 'hd': G_hd,
+        'gg': G_gg, 'hh': G_hh,
+    }
+
+
+def gateway_onebody_matrix(mu: float, eps_d: float, sigma_inf: float,
+                            V: np.ndarray, eps: np.ndarray,
+                            W: np.ndarray, eta: np.ndarray) -> np.ndarray:
+    """Build the one-body grand-canonical matrix K for the gateway model.
+
+    K = H - mu*N in the orbital basis [d, g_1,...,g_M_g, h_1,...,h_M_h].
+
+    The eigenvalues of K determine all correlators via Fermi functions:
+        <c_b^dag c_a> = [f(K)]_{ab} = sum_j U_{a,j}* U_{b,j} f(e_j)
+
+    Returns
+    -------
+    ndarray, shape (1+M_g+M_h, 1+M_g+M_h)
+    """
+    M_g = len(eps)
+    M_h = len(eta)
+    dim = 1 + M_g + M_h
+    K = np.zeros((dim, dim))
+
+    # d-orbital: on-site energy relative to mu
+    K[0, 0] = eps_d + sigma_inf - mu
+
+    # g-bath levels
+    for l in range(M_g):
+        K[1 + l, 1 + l] = eps[l]
+        K[0, 1 + l] = np.conj(V[l])
+        K[1 + l, 0] = V[l]
+
+    # h-ghost levels
+    for l in range(M_h):
+        K[1 + M_g + l, 1 + M_g + l] = eta[l]
+        K[0, 1 + M_g + l] = np.conj(W[l])
+        K[1 + M_g + l, 0] = W[l]
+
+    return K
+
+
+def gateway_correlators(mu: float, eps_d: float,
+                         sigma_inf: float,
+                         V: np.ndarray, eps: np.ndarray,
+                         W: np.ndarray, eta: np.ndarray,
+                         beta: float) -> dict:
+    """Exact equal-time gateway correlators via diagonalization.
+
+    For a quadratic model, <c_b^dag c_a> = [f(K)]_{ab} where
+    f(K) = U @ diag(f(eigenvalues)) @ U^dag is the matrix Fermi function.
+
+    This is exact (no Matsubara truncation) and numerically robust.
+
+    Parameters
+    ----------
+    mu, eps_d, sigma_inf : float
+    V, eps : arrays, shape (M_g,)
+    W, eta : arrays, shape (M_h,)
+    beta : float
+
+    Returns
+    -------
+    dict with:
+        'hh': array (M_h,) — <h_l^dag h_l>_0
+        'dh': array (M_h,) — <d^dag h_l>_0
+        'gg': array (M_g,) — <g_l^dag g_l>_0
+        'dg': array (M_g,) — <d^dag g_l>_0
+    """
+    M_g = len(eps)
+    M_h = len(eta)
+
+    K = gateway_onebody_matrix(mu, eps_d, sigma_inf, V, eps, W, eta)
+    eigvals, U = np.linalg.eigh(K)
+
+    # Matrix Fermi function: f_matrix = U @ diag(f(e)) @ U^dag
+    f_e = fermi_function(eigvals, beta)
+    f_matrix = U @ np.diag(f_e) @ U.T  # real symmetric K -> real U
+
+    # Extract correlators
+    # Orbital ordering: [d, g_1,...,g_Mg, h_1,...,h_Mh]
+    d_idx = 0
+    g_idx = np.arange(1, 1 + M_g)
+    h_idx = np.arange(1 + M_g, 1 + M_g + M_h)
+
+    hh_corr = np.array([f_matrix[i, i] for i in h_idx])
+    dh_corr = np.array([f_matrix[d_idx, i] for i in h_idx])
+    gg_corr = np.array([f_matrix[i, i] for i in g_idx])
+    dg_corr = np.array([f_matrix[d_idx, i] for i in g_idx])
+
+    return {
+        'hh': hh_corr, 'dh': dh_corr,
+        'gg': gg_corr, 'dg': dg_corr,
+    }
