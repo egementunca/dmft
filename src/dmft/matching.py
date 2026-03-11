@@ -144,7 +144,11 @@ def match_h_correlators(target_hh: np.ndarray, target_dh: np.ndarray,
                          M_g: int, beta: float,
                          eps0: np.ndarray = None, V0: np.ndarray = None,
                          symmetric: bool = True,
-                         reg_strength: float = 0.0) -> tuple:
+                         reg_strength: float = 0.0,
+                         scale_floor_hh: float = 5e-2,
+                         scale_floor_dh: float = 1e-2,
+                         energy_max: float = None,
+                         coupling_max: float = None) -> tuple:
     """Find bath parameters {eps, V} by matching h-sector correlators.
 
     Lattice <-> gateway matching: adjust bath poles so the gateway model's
@@ -180,21 +184,30 @@ def match_h_correlators(target_hh: np.ndarray, target_dh: np.ndarray,
     """
     from .gateway import gateway_correlators
 
-    target = np.real(np.concatenate([target_hh, target_dh]))
-    scale = np.maximum(np.abs(target), 1e-3)
+    target_hh = np.real(np.asarray(target_hh))
+    target_dh = np.real(np.asarray(target_dh))
+    target = np.concatenate([target_hh, target_dh])
+    scale_hh = np.maximum(np.abs(target_hh), scale_floor_hh)
+    scale_dh = np.maximum(np.abs(target_dh), scale_floor_dh)
+    scale = np.concatenate([scale_hh, scale_dh])
 
     if symmetric and M_g > 1:
         return _match_h_symmetric(target, mu, eps_d, sigma_inf,
                                    W, eta, M_g, beta, eps0, V0,
-                                   reg_strength, scale)
+                                   reg_strength, scale,
+                                   energy_max=energy_max,
+                                   coupling_max=coupling_max)
     else:
         return _match_h_general(target, mu, eps_d, sigma_inf,
                                  W, eta, M_g, beta, eps0, V0,
-                                 reg_strength, scale)
+                                 reg_strength, scale,
+                                 energy_max=energy_max,
+                                 coupling_max=coupling_max)
 
 
 def _match_h_general(target, mu, eps_d, sigma_inf, W, eta, M_g, beta, eps0, V0,
-                     reg_strength, scale):
+                     reg_strength, scale,
+                     energy_max=None, coupling_max=None):
     """General (no symmetry) h-correlator matching."""
     from .gateway import gateway_correlators
 
@@ -203,6 +216,21 @@ def _match_h_general(target, mu, eps_d, sigma_inf, W, eta, M_g, beta, eps0, V0,
     if V0 is None:
         V0 = np.full(M_g, 0.3)
     x0 = np.real(np.concatenate([eps0, V0]))
+
+    lb_eps = np.full(M_g, -np.inf)
+    ub_eps = np.full(M_g, np.inf)
+    if energy_max is not None:
+        lb_eps[:] = -abs(energy_max)
+        ub_eps[:] = abs(energy_max)
+
+    lb_V = np.zeros(M_g)
+    ub_V = np.full(M_g, np.inf)
+    if coupling_max is not None:
+        ub_V[:] = abs(coupling_max)
+
+    lb = np.concatenate([lb_eps, lb_V])
+    ub = np.concatenate([ub_eps, ub_V])
+    x0 = np.clip(x0, lb, ub)
 
     def residual(x):
         eps_x = x[:M_g]
@@ -216,12 +244,16 @@ def _match_h_general(target, mu, eps_d, sigma_inf, W, eta, M_g, beta, eps0, V0,
             return np.concatenate([r, r_reg])
         return r
 
-    result = least_squares(residual, x0, method='trf', max_nfev=5000)
+    result = least_squares(
+        residual, x0, method='trf', max_nfev=5000,
+        bounds=(lb, ub),
+    )
     return result.x[M_g:], result.x[:M_g]  # V, eps
 
 
 def _match_h_symmetric(target, mu, eps_d, sigma_inf, W, eta, M_g, beta,
-                        eps0, V0, reg_strength, scale):
+                        eps0, V0, reg_strength, scale,
+                        energy_max=None, coupling_max=None):
     """PH-symmetric h-correlator matching."""
     from .gateway import gateway_correlators
 
@@ -243,6 +275,16 @@ def _match_h_symmetric(target, mu, eps_d, sigma_inf, W, eta, M_g, beta,
         x0[n_pairs:2*n_pairs] = 0.3
         if has_center:
             x0[-1] = 0.3
+
+    lb = np.zeros_like(x0)
+    ub = np.full_like(x0, np.inf)
+    if energy_max is not None and n_pairs > 0:
+        ub[:n_pairs] = abs(energy_max)
+    if coupling_max is not None:
+        ub[n_pairs:2*n_pairs] = abs(coupling_max)
+        if has_center:
+            ub[-1] = abs(coupling_max)
+    x0 = np.clip(x0, lb, ub)
 
     def _unpack(x):
         eps_pos = x[:n_pairs]
@@ -267,7 +309,10 @@ def _match_h_symmetric(target, mu, eps_d, sigma_inf, W, eta, M_g, beta,
             return np.concatenate([r, r_reg])
         return r
 
-    result = least_squares(residual, x0, method='trf', max_nfev=5000)
+    result = least_squares(
+        residual, x0, method='trf', max_nfev=5000,
+        bounds=(lb, ub),
+    )
     eps_full, V_full = _unpack(result.x)
     return V_full, eps_full
 
@@ -278,7 +323,11 @@ def match_g_correlators(target_gg: np.ndarray, target_dg: np.ndarray,
                          M_h: int, beta: float,
                          eta0: np.ndarray = None, W0: np.ndarray = None,
                          symmetric: bool = True,
-                         reg_strength: float = 0.0) -> tuple:
+                         reg_strength: float = 0.0,
+                         scale_floor_gg: float = 5e-2,
+                         scale_floor_dg: float = 1e-2,
+                         energy_max: float = None,
+                         coupling_max: float = None) -> tuple:
     """Find ghost parameters {eta, W} by matching g-sector correlators.
 
     Impurity <-> gateway matching: adjust ghost poles so the gateway model's
@@ -313,21 +362,30 @@ def match_g_correlators(target_gg: np.ndarray, target_dg: np.ndarray,
     """
     from .gateway import gateway_correlators
 
-    target = np.real(np.concatenate([target_gg, target_dg]))
-    scale = np.maximum(np.abs(target), 1e-3)
+    target_gg = np.real(np.asarray(target_gg))
+    target_dg = np.real(np.asarray(target_dg))
+    target = np.concatenate([target_gg, target_dg])
+    scale_gg = np.maximum(np.abs(target_gg), scale_floor_gg)
+    scale_dg = np.maximum(np.abs(target_dg), scale_floor_dg)
+    scale = np.concatenate([scale_gg, scale_dg])
 
     if symmetric and M_h > 1:
         return _match_g_symmetric(target, mu, eps_d, sigma_inf,
                                    V, eps, M_h, beta, eta0, W0,
-                                   reg_strength, scale)
+                                   reg_strength, scale,
+                                   energy_max=energy_max,
+                                   coupling_max=coupling_max)
     else:
         return _match_g_general(target, mu, eps_d, sigma_inf,
                                  V, eps, M_h, beta, eta0, W0,
-                                 reg_strength, scale)
+                                 reg_strength, scale,
+                                 energy_max=energy_max,
+                                 coupling_max=coupling_max)
 
 
 def _match_g_general(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
-                      eta0, W0, reg_strength, scale):
+                      eta0, W0, reg_strength, scale,
+                      energy_max=None, coupling_max=None):
     """General (no symmetry) g-correlator matching."""
     from .gateway import gateway_correlators
 
@@ -336,6 +394,21 @@ def _match_g_general(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
     if W0 is None:
         W0 = np.full(M_h, 0.3)
     x0 = np.real(np.concatenate([eta0, W0]))
+
+    lb_eta = np.full(M_h, -np.inf)
+    ub_eta = np.full(M_h, np.inf)
+    if energy_max is not None:
+        lb_eta[:] = -abs(energy_max)
+        ub_eta[:] = abs(energy_max)
+
+    lb_W = np.zeros(M_h)
+    ub_W = np.full(M_h, np.inf)
+    if coupling_max is not None:
+        ub_W[:] = abs(coupling_max)
+
+    lb = np.concatenate([lb_eta, lb_W])
+    ub = np.concatenate([ub_eta, ub_W])
+    x0 = np.clip(x0, lb, ub)
 
     def residual(x):
         eta_x = x[:M_h]
@@ -349,12 +422,16 @@ def _match_g_general(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
             return np.concatenate([r, r_reg])
         return r
 
-    result = least_squares(residual, x0, method='trf', max_nfev=5000)
+    result = least_squares(
+        residual, x0, method='trf', max_nfev=5000,
+        bounds=(lb, ub),
+    )
     return result.x[M_h:], result.x[:M_h]  # W, eta
 
 
 def _match_g_symmetric(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
-                        eta0, W0, reg_strength, scale):
+                        eta0, W0, reg_strength, scale,
+                        energy_max=None, coupling_max=None):
     """PH-symmetric g-correlator matching."""
     from .gateway import gateway_correlators
 
@@ -375,6 +452,16 @@ def _match_g_symmetric(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
         x0[n_pairs:2*n_pairs] = 0.3
         if has_center:
             x0[-1] = 0.3
+
+    lb = np.zeros_like(x0)
+    ub = np.full_like(x0, np.inf)
+    if energy_max is not None and n_pairs > 0:
+        ub[:n_pairs] = abs(energy_max)
+    if coupling_max is not None:
+        ub[n_pairs:2*n_pairs] = abs(coupling_max)
+        if has_center:
+            ub[-1] = abs(coupling_max)
+    x0 = np.clip(x0, lb, ub)
 
     def _unpack(x):
         eta_pos = x[:n_pairs]
@@ -399,6 +486,9 @@ def _match_g_symmetric(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
             return np.concatenate([r, r_reg])
         return r
 
-    result = least_squares(residual, x0, method='trf', max_nfev=5000)
+    result = least_squares(
+        residual, x0, method='trf', max_nfev=5000,
+        bounds=(lb, ub),
+    )
     eta_full, W_full = _unpack(result.x)
     return W_full, eta_full

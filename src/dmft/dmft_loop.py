@@ -165,6 +165,15 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
                          sigma_mix: float = 0.0,
                          h_reg_strength: float = 1e-3,
                          g_reg_strength: float = 1e-3,
+                         h_scale_floor_hh: float = 5e-2,
+                         h_scale_floor_dh: float = 1e-2,
+                         g_scale_floor_gg: float = 5e-2,
+                         g_scale_floor_dg: float = 1e-2,
+                         tol_h: float = 1e-2,
+                         tol_g: float = 1e-2,
+                         strict_stationarity: bool = False,
+                         polish_iters: int = 20,
+                         polish_sigma_mix: float = 0.0,
                          convergence_metric: str = 'sigma',
                          pole_collision_tol: float = 1e-8,
                          residual_growth_factor: float = 1.05,
@@ -213,6 +222,16 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
         Kept at 0 by default to preserve parameter-space iteration.
     h_reg_strength, g_reg_strength : float
         Drift regularization strengths for the h- and g-matching least squares.
+    h_scale_floor_hh, h_scale_floor_dh, g_scale_floor_gg, g_scale_floor_dg : float
+        Component-wise scale floors for matching residual normalization.
+    tol_h, tol_g : float
+        Stationarity tolerances on scaled h/g residual norms.
+    strict_stationarity : bool
+        If True, require `diff`, causality, and h/g residual thresholds to stop.
+    polish_iters : int
+        Two-stage stationarity polish iterations after diff+causality convergence.
+    polish_sigma_mix : float
+        Sigma mixing used in polish stage (0 holds Sigma fixed).
     convergence_metric : {'sigma', 'gloc'}
         Scalar metric used for stopping criterion.
     pole_collision_tol : float
@@ -250,6 +269,7 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
     bath_mix = float(np.clip(bath_mix, 0.0, 1.0))
     ghost_mix = float(np.clip(ghost_mix, 0.0, 1.0))
     sigma_mix = float(np.clip(sigma_mix, 0.0, 1.0))
+    polish_sigma_mix = float(np.clip(polish_sigma_mix, 0.0, 1.0))
 
     h_unknowns = _count_match_unknowns(params.M_g, symmetric=symmetric)
     g_unknowns = _count_match_unknowns(params.M_h, symmetric=symmetric)
@@ -278,14 +298,20 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
 
     # Start with initial self-energy from poles
     Sigma = self_energy_poles(iw, poles.W, poles.eta, poles.sigma_inf)
+    last_causal_sigma = Sigma.copy()
+    last_causal_poles = poles.copy()
     history = []
     prev_h_resid = None
     prev_g_resid = None
     h_targets = g_targets = None
+    polish_mode = False
+    polish_remaining = 0
+    Sigma_polish_ref = None
 
     for iteration in range(params.max_iter):
-        # 1) Lattice step from current ghost self-energy
-        G_loc = bethe_local_gf(iw, params.mu, params.eps_d, Sigma, params.t)
+        # 1) Lattice step from current ghost self-energy (or fixed Sigma in polish)
+        Sigma_iter = Sigma_polish_ref if polish_mode else Sigma
+        G_loc = bethe_local_gf(iw, params.mu, params.eps_d, Sigma_iter, params.t)
 
         # 2) Lattice h-sector correlators
         lat_corr = lattice_correlators(
@@ -303,6 +329,10 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
             poles.W, poles.eta, params.M_g, params.beta,
             eps0=poles.eps, V0=poles.V, symmetric=symmetric,
             reg_strength=h_reg_strength,
+            scale_floor_hh=h_scale_floor_hh,
+            scale_floor_dh=h_scale_floor_dh,
+            energy_max=bath_energy_max,
+            coupling_max=bath_coupling_max,
         )
         V_new, eps_new = _canonicalize_real_poles(V_new, eps_new, symmetric=symmetric)
         V_new, eps_new = _clip_poles(
@@ -321,10 +351,20 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
             params.mu, params.eps_d, poles.sigma_inf,
             poles.V, poles.eps, poles.W, poles.eta, params.beta
         )
-        h_resid = _residual_norm(
+        h_pred_hh = np.real(np.asarray(h_pred['hh']))
+        h_pred_dh = np.real(np.asarray(h_pred['dh']))
+        h_delta_hh = h_pred_hh - h_targets['hh']
+        h_delta_dh = h_pred_dh - h_targets['dh']
+        h_abs_hh = np.abs(h_delta_hh)
+        h_abs_dh = np.abs(h_delta_dh)
+        h_scale_hh = np.maximum(np.abs(h_targets['hh']), h_scale_floor_hh)
+        h_scale_dh = np.maximum(np.abs(h_targets['dh']), h_scale_floor_dh)
+        h_resid = _scaled_residual_norm(
+            h_delta_hh, h_delta_dh, h_scale_hh, h_scale_dh
+        )
+        h_resid_abs = _residual_norm(
             h_targets['hh'], h_targets['dh'],
-            np.real(np.asarray(h_pred['hh'])),
-            np.real(np.asarray(h_pred['dh'])),
+            h_pred_hh, h_pred_dh,
         )
 
         # 4) Solve interacting impurity with updated bath (Option A: unshifted)
@@ -366,6 +406,10 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
                 poles.V, poles.eps, params.M_h, params.beta,
                 eta0=poles.eta, W0=poles.W, symmetric=symmetric,
                 reg_strength=g_reg_strength,
+                scale_floor_gg=g_scale_floor_gg,
+                scale_floor_dg=g_scale_floor_dg,
+                energy_max=ghost_energy_max,
+                coupling_max=ghost_coupling_max,
             )
         else:
             W_new, eta_new = fit_self_energy_poles(
@@ -389,17 +433,27 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
             params.mu, params.eps_d, sigma_inf_impurity,
             poles.V, poles.eps, poles.W, poles.eta, params.beta
         )
-        g_resid = _residual_norm(
+        g_pred_gg = np.real(np.asarray(g_pred['gg']))
+        g_pred_dg = np.real(np.asarray(g_pred['dg']))
+        g_delta_gg = g_pred_gg - g_targets['gg']
+        g_delta_dg = g_pred_dg - g_targets['dg']
+        g_abs_gg = np.abs(g_delta_gg)
+        g_abs_dg = np.abs(g_delta_dg)
+        g_scale_gg = np.maximum(np.abs(g_targets['gg']), g_scale_floor_gg)
+        g_scale_dg = np.maximum(np.abs(g_targets['dg']), g_scale_floor_dg)
+        g_resid = _scaled_residual_norm(
+            g_delta_gg, g_delta_dg, g_scale_gg, g_scale_dg
+        )
+        g_resid_abs = _residual_norm(
             g_targets['gg'], g_targets['dg'],
-            np.real(np.asarray(g_pred['gg'])),
-            np.real(np.asarray(g_pred['dg'])),
+            g_pred_gg, g_pred_dg,
         )
 
         # 8) Rebuild Sigma from updated poles and assess convergence
         Sigma_next = self_energy_poles(iw, poles.W, poles.eta, poles.sigma_inf)
 
         if sigma_mix > 0.0:
-            Sigma_blend = sigma_mix * Sigma_next + (1.0 - sigma_mix) * Sigma
+            Sigma_blend = sigma_mix * Sigma_next + (1.0 - sigma_mix) * Sigma_iter
             W_fit, eta_fit = fit_self_energy_poles(
                 Sigma_blend, iw, poles.sigma_inf, params.M_h, symmetric=symmetric
             )
@@ -438,17 +492,29 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
                     found = True
                     break
             if not found:
-                poles.W, poles.eta = old_W, old_eta
-                Sigma_next = self_energy_poles(iw, poles.W, poles.eta, poles.sigma_inf)
+                poles.W = last_causal_poles.W.copy()
+                poles.eta = last_causal_poles.eta.copy()
+                poles.sigma_inf = sigma_inf_new
+                Sigma_next = last_causal_sigma.copy()
                 G_loc_next = bethe_local_gf(iw, params.mu, params.eps_d, Sigma_next, params.t)
                 backtrack_alpha = 0.0
 
-        sigma_diff = _relative_change(Sigma_next, Sigma)
+        if polish_mode:
+            Sigma_next = (
+                (1.0 - polish_sigma_mix) * Sigma_polish_ref
+                + polish_sigma_mix * Sigma_next
+            )
+            G_loc_next = bethe_local_gf(iw, params.mu, params.eps_d, Sigma_next, params.t)
+
+        sigma_diff = _relative_change(Sigma_next, Sigma_iter)
         gloc_diff = _relative_change(G_loc_next, G_loc)
         diff = sigma_diff if convergence_metric == 'sigma' else gloc_diff
 
         causality_ok = _causality_ok(G_loc_next, causality_tol)
         max_imag_gloc = float(np.max(G_loc_next.imag))
+        if causality_ok:
+            last_causal_sigma = Sigma_next.copy()
+            last_causal_poles = poles.copy()
         ph_symmetric_ok = _ph_symmetry_ok(
             poles.V, poles.eps, poles.W, poles.eta
         ) if symmetric else True
@@ -467,6 +533,17 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
         g_resid_growth = (
             prev_g_resid is not None and g_resid > residual_growth_factor * prev_g_resid
         )
+        stationarity_ok = (h_resid < tol_h) and (g_resid < tol_g)
+        stable_step = backtrack_alpha > 0.0
+
+        max_abs_dhh = float(np.max(h_abs_hh)) if len(h_abs_hh) else 0.0
+        max_abs_ddh = float(np.max(h_abs_dh)) if len(h_abs_dh) else 0.0
+        max_abs_dgg = float(np.max(g_abs_gg)) if len(g_abs_gg) else 0.0
+        max_abs_ddg = float(np.max(g_abs_dg)) if len(g_abs_dg) else 0.0
+        max_t_hh = float(np.max(np.abs(h_targets['hh']))) if len(h_targets['hh']) else 0.0
+        max_t_dh = float(np.max(np.abs(h_targets['dh']))) if len(h_targets['dh']) else 0.0
+        max_t_gg = float(np.max(np.abs(g_targets['gg']))) if len(g_targets['gg']) else 0.0
+        max_t_dg = float(np.max(np.abs(g_targets['dg']))) if len(g_targets['dg']) else 0.0
 
         Z = _quasiparticle_weight(Sigma_next, wn)
         info = {
@@ -479,7 +556,15 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
             'n_imp': n_imp,
             'sigma_inf': poles.sigma_inf,
             'h_resid': h_resid,
+            'h_resid_abs': h_resid_abs,
             'g_resid': g_resid,
+            'g_resid_abs': g_resid_abs,
+            'stationarity_ok': stationarity_ok,
+            'tol_h': tol_h,
+            'tol_g': tol_g,
+            'polish_mode': bool(polish_mode),
+            'polish_remaining': int(polish_remaining),
+            'stable_step': stable_step,
             'ghost_update_mode': ghost_update_mode,
             'causality_ok': causality_ok,
             'max_imag_gloc': max_imag_gloc,
@@ -491,6 +576,38 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
             'underdetermined_h': underdetermined_h,
             'underdetermined_g': underdetermined_g,
             'impurity_noisy': bool(noisy_impurity),
+            'max_abs_dhh': max_abs_dhh,
+            'max_abs_ddh': max_abs_ddh,
+            'max_abs_dgg': max_abs_dgg,
+            'max_abs_ddg': max_abs_ddg,
+            'max_target_hh': max_t_hh,
+            'max_target_dh': max_t_dh,
+            'max_target_gg': max_t_gg,
+            'max_target_dg': max_t_dg,
+            'h_match': {
+                'target_hh': h_targets['hh'].copy(),
+                'target_dh': h_targets['dh'].copy(),
+                'pred_hh': h_pred_hh.copy(),
+                'pred_dh': h_pred_dh.copy(),
+                'delta_hh': h_delta_hh.copy(),
+                'delta_dh': h_delta_dh.copy(),
+                'abs_delta_hh': h_abs_hh.copy(),
+                'abs_delta_dh': h_abs_dh.copy(),
+                'scale_hh': h_scale_hh.copy(),
+                'scale_dh': h_scale_dh.copy(),
+            },
+            'g_match': {
+                'target_gg': g_targets['gg'].copy(),
+                'target_dg': g_targets['dg'].copy(),
+                'pred_gg': g_pred_gg.copy(),
+                'pred_dg': g_pred_dg.copy(),
+                'delta_gg': g_delta_gg.copy(),
+                'delta_dg': g_delta_dg.copy(),
+                'abs_delta_gg': g_abs_gg.copy(),
+                'abs_delta_dg': g_abs_dg.copy(),
+                'scale_gg': g_scale_gg.copy(),
+                'scale_dg': g_scale_dg.copy(),
+            },
             'bath_poles': {
                 'eps': poles.eps.copy(),
                 'V': poles.V.copy(),
@@ -507,7 +624,12 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
                 f"  iter {iteration:3d}: {convergence_metric}_diff={diff:.2e} "
                 f"(Sigma={sigma_diff:.2e}, G={gloc_diff:.2e})  "
                 f"h_res={h_resid:.2e} g_res={g_resid:.2e}  "
+                f"abs[max|dhh|={max_abs_dhh:.2e}, max|ddh|={max_abs_ddh:.2e}, "
+                f"max|dgg|={max_abs_dgg:.2e}, max|ddg|={max_abs_ddg:.2e}]  "
+                f"tgt[max|hh|={max_t_hh:.2e}, max|dh|={max_t_dh:.2e}, "
+                f"max|gg|={max_t_gg:.2e}, max|dg|={max_t_dg:.2e}]  "
                 f"n={n_imp:.4f} sigma_inf={poles.sigma_inf:.4f} Z={Z:.4f}  "
+                f"stationarity={stationarity_ok} polish={polish_mode}  "
                 f"bath[{_poles_brief(poles.eps, poles.V)}] "
                 f"ghost[{_poles_brief(poles.eta, poles.W)}]"
             )
@@ -526,12 +648,50 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
         Sigma = Sigma_next
         prev_h_resid = h_resid
         prev_g_resid = g_resid
-        if diff < params.tol and causality_ok:
+        if strict_stationarity:
+            if diff < params.tol and causality_ok and stationarity_ok and stable_step:
+                if verbose:
+                    print(f"  Converged (strict stationarity) after {iteration + 1} iterations.")
+                break
+            if diff < params.tol and (not causality_ok) and verbose:
+                print("    diff below tol but causality check failed; continuing.")
+            if diff < params.tol and causality_ok and (not stable_step) and verbose:
+                print("    diff below tol but update was rejected by causality backtracking; continuing.")
+            continue
+
+        if polish_mode:
+            if stationarity_ok and causality_ok:
+                if verbose:
+                    print(f"  Converged after polish at iteration {iteration + 1}.")
+                break
+            polish_remaining -= 1
+            if polish_remaining <= 0:
+                if verbose:
+                    print(
+                        "  WARNING: polish stage exhausted without stationarity "
+                        f"(h_res={h_resid:.2e}, g_res={g_resid:.2e})."
+                    )
+                break
+            continue
+
+        if diff < params.tol and causality_ok and stable_step:
+            if stationarity_ok or polish_iters <= 0:
+                if verbose:
+                    print(f"  Converged after {iteration + 1} iterations.")
+                break
+            polish_mode = True
+            polish_remaining = polish_iters
+            Sigma_polish_ref = Sigma.copy()
             if verbose:
-                print(f"  Converged after {iteration + 1} iterations.")
-            break
+                print(
+                    f"  Entering stationarity polish for up to {polish_iters} iterations "
+                    f"(tol_h={tol_h:.1e}, tol_g={tol_g:.1e}, sigma_mix={polish_sigma_mix:.2f})."
+                )
+            continue
         if diff < params.tol and (not causality_ok) and verbose:
             print("    diff below tol but causality check failed; continuing.")
+        if diff < params.tol and causality_ok and (not stable_step) and verbose:
+            print("    diff below tol but update was rejected by causality backtracking; continuing.")
     else:
         if verbose:
             print(f"  WARNING: Not converged after {params.max_iter} iterations.")
@@ -554,6 +714,13 @@ def dmft_loop_two_ghost(params: DMFTParams, solver: ImpuritySolver,
             'g_constraints': g_constraints,
             'h_unknowns': h_unknowns,
             'g_unknowns': g_unknowns,
+            'h_scale_floors': {'hh': h_scale_floor_hh, 'dh': h_scale_floor_dh},
+            'g_scale_floors': {'gg': g_scale_floor_gg, 'dg': g_scale_floor_dg},
+            'tol_h': tol_h,
+            'tol_g': tol_g,
+            'strict_stationarity': strict_stationarity,
+            'polish_iters': polish_iters,
+            'polish_sigma_mix': polish_sigma_mix,
         },
     }
 
@@ -607,6 +774,16 @@ def _residual_norm(target_diag: np.ndarray, target_off: np.ndarray,
     r = np.concatenate([
         np.real(np.asarray(pred_diag) - np.asarray(target_diag)),
         np.real(np.asarray(pred_off) - np.asarray(target_off)),
+    ])
+    return float(np.linalg.norm(r))
+
+
+def _scaled_residual_norm(delta_diag: np.ndarray, delta_off: np.ndarray,
+                           scale_diag: np.ndarray, scale_off: np.ndarray) -> float:
+    """L2 norm of scale-normalized residual components."""
+    r = np.concatenate([
+        np.real(np.asarray(delta_diag) / np.asarray(scale_diag)),
+        np.real(np.asarray(delta_off) / np.asarray(scale_off)),
     ])
     return float(np.linalg.norm(r))
 
