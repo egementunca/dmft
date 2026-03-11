@@ -15,3 +15,7 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Generated diagnostics artifacts.
+diagnostics/mplconfig/
+diagnostics/*.json
