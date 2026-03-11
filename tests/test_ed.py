@@ -62,3 +62,14 @@ def test_ed_causality(iw, solver):
     result = solver.solve(iw, 1.0, 0.0, 2.0, V, eps, 50.0, 1.0)
 
     assert np.all(result['G_imp'].imag < 0), "G should be causal"
+
+
+def test_ed_noninteracting_complex_v(iw, solver):
+    """ED supports complex bath hybridization amplitudes."""
+    V = np.array([0.3 + 0.2j, -0.25 + 0.1j])
+    eps = np.array([-0.4, 0.4])
+    result = solver.solve(iw, 0.0, 0.0, 0.0, V, eps, 50.0, 0.0)
+
+    delta = hybridization(iw, V, eps)
+    G_exact = 1.0 / (iw - delta)
+    np.testing.assert_allclose(result['G_imp'], G_exact, atol=1e-12)

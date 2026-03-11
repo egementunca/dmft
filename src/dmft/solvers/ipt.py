@@ -18,6 +18,8 @@ class IPTSolver(ImpuritySolver):
     """IPT solver — fast, decent at half-filling."""
 
     def solve(self, iw, mu, eps_d, U, V, eps, beta, sigma_inf):
+        # Option A convention: sigma_inf is handled in the outer loop/pole
+        # representation and is not an on-site shift in H_imp here.
         n_w = len(iw)
 
         # Build hybridization

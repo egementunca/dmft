@@ -3,7 +3,11 @@
 Solves the interacting impurity problem by constructing the full many-body
 Hamiltonian in Fock space and diagonalizing it exactly.
 
-H_imp = (eps_d + sigma_inf - mu) sum_s n_{d,s} + U n_{d,up} n_{d,down}
+Project convention (Option A):
+    sigma_inf is a tail constraint handled by the outer DMFT loop and
+    pole representation, not an on-site shift in H_imp.
+
+H_imp = (eps_d - mu) sum_s n_{d,s} + U n_{d,up} n_{d,down}
         + sum_{l,s} eps_l n_{g_l,s} + sum_{l,s} (V_l d_s^dag g_{l,s} + h.c.)
 
 The Hilbert space dimension is 4^{n_orb} where n_orb = 1 + M_g (per spin),
@@ -26,10 +30,9 @@ class EDSolver(ImpuritySolver):
     def solve(self, iw, mu, eps_d, U, V, eps, beta, sigma_inf):
         n_orb = 1 + len(eps)  # impurity + bath
 
-        # Build one-body Hamiltonian (per spin, same for up and down)
-        # Note: sigma_inf is NOT in H_imp — it's part of the self-energy output.
-        # The impurity Hamiltonian has the bare eps_d level.
-        h = np.zeros((n_orb, n_orb))
+        # Build one-body Hamiltonian (per spin, same for up and down).
+        # Option A: impurity Hamiltonian is unshifted by sigma_inf.
+        h = np.zeros((n_orb, n_orb), dtype=complex)
         h[0, 0] = eps_d - mu
         for l in range(len(eps)):
             h[1 + l, 1 + l] = eps[l]
@@ -91,7 +94,7 @@ class EDSolver(ImpuritySolver):
                                                 sec_tgt['basis'], 'up')
                     # Transform to eigenbasis: <tgt_a| c |src_b>
                     with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
-                        mat_eig = sec_tgt['states'].T @ mat @ sec_src['states']
+                        mat_eig = sec_tgt['states'].conj().T @ mat @ sec_src['states']
                     mat_eig = np.nan_to_num(mat_eig, nan=0.0)
 
                     E_tgt = sec_tgt['energies']
@@ -122,7 +125,7 @@ class EDSolver(ImpuritySolver):
         # Bath correlators: <g_l^dag g_l> and <d^dag g_l> for two-ghost matching
         n_bath = len(eps)
         bath_gg = np.zeros(n_bath)
-        bath_dg = np.zeros(n_bath)
+        bath_dg = np.zeros(n_bath, dtype=complex)
 
         for n_up in range(n_orb + 1):
             for n_down in range(n_orb + 1):
@@ -141,8 +144,11 @@ class EDSolver(ImpuritySolver):
                         bath_gg[l] += bw * _number_operator_expect(
                             g_orb, n_orb, sec['basis'], state_vec, 'up')
                         # <d^dag g_l> via off-diagonal one-body density matrix
-                        bath_dg[l] += bw * _one_body_rdm_element(
-                            0, g_orb, n_orb, sec['basis'], state_vec, 'up')
+                        # _one_body_rdm_element(...) follows bra/ket index order
+                        # opposite to our stored convention, so take conjugate
+                        # to return <d^dag g_l>.
+                        bath_dg[l] += bw * np.conj(_one_body_rdm_element(
+                            0, g_orb, n_orb, sec['basis'], state_vec, 'up'))
 
         bath_gg /= Z
         bath_dg /= Z
@@ -184,7 +190,7 @@ def _build_hamiltonian(h, U, n_orb, basis, n_up, n_down):
     H = sum_{ab,s} h_{ab} c_{a,s}^dag c_{b,s} + U n_{0,up} n_{0,down}
     """
     dim = len(basis)
-    H = np.zeros((dim, dim))
+    H = np.zeros((dim, dim), dtype=complex)
 
     for i, (up_i, down_i) in enumerate(basis):
         up_set = set(up_i)
@@ -352,7 +358,7 @@ def _one_body_rdm_element(orb_a, orb_b, n_orb, basis, state_vec, spin):
     if orb_a == orb_b:
         return _number_operator_expect(orb_a, n_orb, basis, state_vec, spin)
 
-    result = 0.0
+    result = 0.0 + 0.0j
     for i, (up_i, down_i) in enumerate(basis):
         config = up_i if spin == 'up' else down_i
         other = down_i if spin == 'up' else up_i
@@ -365,6 +371,6 @@ def _one_body_rdm_element(orb_a, orb_b, n_orb, basis, state_vec, spin):
         new_state = (new_config, other) if spin == 'up' else (other, new_config)
         j = _find_state(basis, new_state[0], new_state[1])
         if j >= 0:
-            result += sign * state_vec[j] * state_vec[i]
+            result += sign * np.conj(state_vec[j]) * state_vec[i]
 
     return result

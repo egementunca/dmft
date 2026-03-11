@@ -22,7 +22,13 @@ The d-d Green's function via Schur complement:
 """
 
 import numpy as np
-from .matsubara import fermi_function
+from .matsubara import (
+    fermi_function,
+    matsubara_sum_numerical,
+    matsubara_sum_convergence,
+    matsubara_sum_pair_numerical,
+    matsubara_sum_pair_convergence,
+)
 
 
 def gateway_greens_functions(iw: np.ndarray, mu: float, eps_d: float,
@@ -103,7 +109,7 @@ def gateway_onebody_matrix(mu: float, eps_d: float, sigma_inf: float,
     M_g = len(eps)
     M_h = len(eta)
     dim = 1 + M_g + M_h
-    K = np.zeros((dim, dim))
+    K = np.zeros((dim, dim), dtype=complex)
 
     # d-orbital: on-site energy relative to mu
     K[0, 0] = eps_d + sigma_inf - mu
@@ -158,7 +164,7 @@ def gateway_correlators(mu: float, eps_d: float,
 
     # Matrix Fermi function: f_matrix = U @ diag(f(e)) @ U^dag
     f_e = fermi_function(eigvals, beta)
-    f_matrix = U @ np.diag(f_e) @ U.T  # real symmetric K -> real U
+    f_matrix = U @ np.diag(f_e) @ U.conj().T
 
     # Extract correlators
     # Orbital ordering: [d, g_1,...,g_Mg, h_1,...,h_Mh]
@@ -166,12 +172,140 @@ def gateway_correlators(mu: float, eps_d: float,
     g_idx = np.arange(1, 1 + M_g)
     h_idx = np.arange(1 + M_g, 1 + M_g + M_h)
 
-    hh_corr = np.array([f_matrix[i, i] for i in h_idx])
-    dh_corr = np.array([f_matrix[d_idx, i] for i in h_idx])
-    gg_corr = np.array([f_matrix[i, i] for i in g_idx])
-    dg_corr = np.array([f_matrix[d_idx, i] for i in g_idx])
+    hh_corr = np.array([f_matrix[i, i] for i in h_idx], dtype=complex)
+    # <d^dag h_l> = [f(K)]_{h_l,d}
+    dh_corr = np.array([f_matrix[i, d_idx] for i in h_idx], dtype=complex)
+    gg_corr = np.array([f_matrix[i, i] for i in g_idx], dtype=complex)
+    # <d^dag g_l> = [f(K)]_{g_l,d}
+    dg_corr = np.array([f_matrix[i, d_idx] for i in g_idx], dtype=complex)
 
     return {
-        'hh': hh_corr, 'dh': dh_corr,
-        'gg': gg_corr, 'dg': dg_corr,
+        'hh': np.real_if_close(hh_corr),
+        'dh': np.real_if_close(dh_corr),
+        'gg': np.real_if_close(gg_corr),
+        'dg': np.real_if_close(dg_corr),
     }
+
+
+def gateway_correlators_from_matsubara(
+    iw: np.ndarray,
+    mu: float,
+    eps_d: float,
+    sigma_inf: float,
+    V: np.ndarray,
+    eps: np.ndarray,
+    W: np.ndarray,
+    eta: np.ndarray,
+    beta: float,
+    return_diagnostics: bool = False,
+    diagnostic_n_values: np.ndarray = None,
+) -> dict:
+    """Gateway correlators from Matsubara sums of Green's-function blocks.
+
+    This is an independent route to equal-time correlators, useful for
+    validating truncation errors and checking consistency with the exact
+    diagonalization-based `gateway_correlators()`.
+
+    Parameters
+    ----------
+    iw : array, shape (N,)
+        Positive Matsubara frequencies (1j*w_n).
+    mu, eps_d, sigma_inf : float
+    V, eps : arrays, shape (M_g,)
+    W, eta : arrays, shape (M_h,)
+    beta : float
+    return_diagnostics : bool
+        If True, return convergence history versus n_matsubara.
+    diagnostic_n_values : array, optional
+        Explicit n_matsubara values for diagnostics.
+
+    Returns
+    -------
+    dict with keys: 'hh', 'dh', 'gg', 'dg', and optional 'diagnostics'.
+    """
+    gf = gateway_greens_functions(iw, mu, eps_d, sigma_inf, V, eps, W, eta)
+    M_g = len(eps)
+    M_h = len(eta)
+
+    hh_corr = np.zeros(M_h)
+    dh_corr = np.zeros(M_h, dtype=complex)
+    gg_corr = np.zeros(M_g)
+    dg_corr = np.zeros(M_g, dtype=complex)
+
+    diagnostics = None
+    if return_diagnostics:
+        n_values = np.asarray(
+            matsubara_sum_convergence(
+                np.zeros_like(iw), beta, n_values=diagnostic_n_values
+            )['n_matsubara']
+        )
+        diagnostics = {
+            'n_matsubara': n_values,
+            'hh': np.zeros((M_h, len(n_values))),
+            'dh': np.zeros((M_h, len(n_values)), dtype=complex),
+            'gg': np.zeros((M_g, len(n_values))),
+            'dg': np.zeros((M_g, len(n_values)), dtype=complex),
+        }
+
+    for l in range(M_h):
+        # G_hh = 1/(iw-eta) + dynamic part
+        hh_dynamic = gf['hh'][l] - 1.0 / (iw - eta[l])
+        hh_corr[l] = (
+            fermi_function(np.array([eta[l]]), beta)[0]
+            + matsubara_sum_numerical(hh_dynamic, beta).real
+        )
+
+        # <d^dag h_l> = (1/beta) sum_n G_{h_l,d}(iw_n)
+        G_hd = gf['hd'][l]
+        G_dh = np.conj(W[l]) * gf['dd'] / (iw - eta[l])
+        dh_corr[l] = matsubara_sum_pair_numerical(
+            G_hd, G_dh, beta, tail_c2_ab=W[l], tail_c2_ba=np.conj(W[l])
+        )
+
+        if return_diagnostics:
+            hh_seq = matsubara_sum_convergence(
+                hh_dynamic, beta, n_values=diagnostic_n_values
+            )['sum']
+            dh_seq = matsubara_sum_pair_convergence(
+                G_hd, G_dh, beta,
+                tail_c2_ab=W[l], tail_c2_ba=np.conj(W[l]),
+                n_values=diagnostic_n_values
+            )['sum']
+            diagnostics['hh'][l] = fermi_function(np.array([eta[l]]), beta)[0] + hh_seq.real
+            diagnostics['dh'][l] = dh_seq
+
+    for l in range(M_g):
+        gg_dynamic = gf['gg'][l] - 1.0 / (iw - eps[l])
+        gg_corr[l] = (
+            fermi_function(np.array([eps[l]]), beta)[0]
+            + matsubara_sum_numerical(gg_dynamic, beta).real
+        )
+
+        # <d^dag g_l> = (1/beta) sum_n G_{g_l,d}(iw_n)
+        G_gd = gf['gd'][l]
+        G_dg = np.conj(V[l]) * gf['dd'] / (iw - eps[l])
+        dg_corr[l] = matsubara_sum_pair_numerical(
+            G_gd, G_dg, beta, tail_c2_ab=V[l], tail_c2_ba=np.conj(V[l])
+        )
+
+        if return_diagnostics:
+            gg_seq = matsubara_sum_convergence(
+                gg_dynamic, beta, n_values=diagnostic_n_values
+            )['sum']
+            dg_seq = matsubara_sum_pair_convergence(
+                G_gd, G_dg, beta,
+                tail_c2_ab=V[l], tail_c2_ba=np.conj(V[l]),
+                n_values=diagnostic_n_values
+            )['sum']
+            diagnostics['gg'][l] = fermi_function(np.array([eps[l]]), beta)[0] + gg_seq.real
+            diagnostics['dg'][l] = dg_seq
+
+    out = {
+        'hh': np.real_if_close(hh_corr),
+        'dh': np.real_if_close(dh_corr),
+        'gg': np.real_if_close(gg_corr),
+        'dg': np.real_if_close(dg_corr),
+    }
+    if diagnostics is not None:
+        out['diagnostics'] = diagnostics
+    return out

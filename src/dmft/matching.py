@@ -143,7 +143,8 @@ def match_h_correlators(target_hh: np.ndarray, target_dh: np.ndarray,
                          W: np.ndarray, eta: np.ndarray,
                          M_g: int, beta: float,
                          eps0: np.ndarray = None, V0: np.ndarray = None,
-                         symmetric: bool = True) -> tuple:
+                         symmetric: bool = True,
+                         reg_strength: float = 0.0) -> tuple:
     """Find bath parameters {eps, V} by matching h-sector correlators.
 
     Lattice <-> gateway matching: adjust bath poles so the gateway model's
@@ -180,16 +181,20 @@ def match_h_correlators(target_hh: np.ndarray, target_dh: np.ndarray,
     from .gateway import gateway_correlators
 
     target = np.real(np.concatenate([target_hh, target_dh]))
+    scale = np.maximum(np.abs(target), 1e-3)
 
     if symmetric and M_g > 1:
         return _match_h_symmetric(target, mu, eps_d, sigma_inf,
-                                   W, eta, M_g, beta, eps0, V0)
+                                   W, eta, M_g, beta, eps0, V0,
+                                   reg_strength, scale)
     else:
         return _match_h_general(target, mu, eps_d, sigma_inf,
-                                 W, eta, M_g, beta, eps0, V0)
+                                 W, eta, M_g, beta, eps0, V0,
+                                 reg_strength, scale)
 
 
-def _match_h_general(target, mu, eps_d, sigma_inf, W, eta, M_g, beta, eps0, V0):
+def _match_h_general(target, mu, eps_d, sigma_inf, W, eta, M_g, beta, eps0, V0,
+                     reg_strength, scale):
     """General (no symmetry) h-correlator matching."""
     from .gateway import gateway_correlators
 
@@ -205,14 +210,18 @@ def _match_h_general(target, mu, eps_d, sigma_inf, W, eta, M_g, beta, eps0, V0):
         corr = gateway_correlators(mu, eps_d, sigma_inf,
                                     V_x, eps_x, W, eta, beta)
         pred = np.real(np.concatenate([corr['hh'], corr['dh']]))
-        return pred - target
+        r = (pred - target) / scale
+        if reg_strength > 0.0:
+            r_reg = np.sqrt(reg_strength) * (x - x0)
+            return np.concatenate([r, r_reg])
+        return r
 
-    result = least_squares(residual, x0, method='lm', max_nfev=5000)
+    result = least_squares(residual, x0, method='trf', max_nfev=5000)
     return result.x[M_g:], result.x[:M_g]  # V, eps
 
 
 def _match_h_symmetric(target, mu, eps_d, sigma_inf, W, eta, M_g, beta,
-                        eps0, V0):
+                        eps0, V0, reg_strength, scale):
     """PH-symmetric h-correlator matching."""
     from .gateway import gateway_correlators
 
@@ -252,9 +261,13 @@ def _match_h_symmetric(target, mu, eps_d, sigma_inf, W, eta, M_g, beta,
         corr = gateway_correlators(mu, eps_d, sigma_inf,
                                     V_full, eps_full, W, eta, beta)
         pred = np.real(np.concatenate([corr['hh'], corr['dh']]))
-        return pred - target
+        r = (pred - target) / scale
+        if reg_strength > 0.0:
+            r_reg = np.sqrt(reg_strength) * (x - x0)
+            return np.concatenate([r, r_reg])
+        return r
 
-    result = least_squares(residual, x0, method='lm', max_nfev=5000)
+    result = least_squares(residual, x0, method='trf', max_nfev=5000)
     eps_full, V_full = _unpack(result.x)
     return V_full, eps_full
 
@@ -264,7 +277,8 @@ def match_g_correlators(target_gg: np.ndarray, target_dg: np.ndarray,
                          V: np.ndarray, eps: np.ndarray,
                          M_h: int, beta: float,
                          eta0: np.ndarray = None, W0: np.ndarray = None,
-                         symmetric: bool = True) -> tuple:
+                         symmetric: bool = True,
+                         reg_strength: float = 0.0) -> tuple:
     """Find ghost parameters {eta, W} by matching g-sector correlators.
 
     Impurity <-> gateway matching: adjust ghost poles so the gateway model's
@@ -300,17 +314,20 @@ def match_g_correlators(target_gg: np.ndarray, target_dg: np.ndarray,
     from .gateway import gateway_correlators
 
     target = np.real(np.concatenate([target_gg, target_dg]))
+    scale = np.maximum(np.abs(target), 1e-3)
 
     if symmetric and M_h > 1:
         return _match_g_symmetric(target, mu, eps_d, sigma_inf,
-                                   V, eps, M_h, beta, eta0, W0)
+                                   V, eps, M_h, beta, eta0, W0,
+                                   reg_strength, scale)
     else:
         return _match_g_general(target, mu, eps_d, sigma_inf,
-                                 V, eps, M_h, beta, eta0, W0)
+                                 V, eps, M_h, beta, eta0, W0,
+                                 reg_strength, scale)
 
 
 def _match_g_general(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
-                      eta0, W0):
+                      eta0, W0, reg_strength, scale):
     """General (no symmetry) g-correlator matching."""
     from .gateway import gateway_correlators
 
@@ -326,14 +343,18 @@ def _match_g_general(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
         corr = gateway_correlators(mu, eps_d, sigma_inf,
                                     V, eps, W_x, eta_x, beta)
         pred = np.real(np.concatenate([corr['gg'], corr['dg']]))
-        return pred - target
+        r = (pred - target) / scale
+        if reg_strength > 0.0:
+            r_reg = np.sqrt(reg_strength) * (x - x0)
+            return np.concatenate([r, r_reg])
+        return r
 
-    result = least_squares(residual, x0, method='lm', max_nfev=5000)
+    result = least_squares(residual, x0, method='trf', max_nfev=5000)
     return result.x[M_h:], result.x[:M_h]  # W, eta
 
 
 def _match_g_symmetric(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
-                        eta0, W0):
+                        eta0, W0, reg_strength, scale):
     """PH-symmetric g-correlator matching."""
     from .gateway import gateway_correlators
 
@@ -372,8 +393,12 @@ def _match_g_symmetric(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
         corr = gateway_correlators(mu, eps_d, sigma_inf,
                                     V, eps, W_full, eta_full, beta)
         pred = np.real(np.concatenate([corr['gg'], corr['dg']]))
-        return pred - target
+        r = (pred - target) / scale
+        if reg_strength > 0.0:
+            r_reg = np.sqrt(reg_strength) * (x - x0)
+            return np.concatenate([r, r_reg])
+        return r
 
-    result = least_squares(residual, x0, method='lm', max_nfev=5000)
+    result = least_squares(residual, x0, method='trf', max_nfev=5000)
     eta_full, W_full = _unpack(result.x)
     return W_full, eta_full

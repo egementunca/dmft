@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from dmft.lattice import bethe_local_gf, bethe_self_consistency
+from dmft.lattice import bethe_local_gf, bethe_self_consistency, lattice_correlators
 from dmft.matsubara import matsubara_frequencies
 
 
@@ -73,3 +73,25 @@ def test_noninteracting_self_consistency(iw):
 
     residual = t**2 * G**2 - iw * G + 1.0
     np.testing.assert_allclose(residual, 0.0, atol=1e-10)
+
+
+def test_lattice_correlator_diagnostics_shape(iw):
+    """lattice_correlators optionally returns convergence diagnostics."""
+    beta = 50.0
+    G = bethe_local_gf(iw, 1.0, 0.0, np.full_like(iw, 0.2), 0.5)
+    W = np.array([0.25, 0.25])
+    eta = np.array([-0.4, 0.4])
+    diag_n = np.array([64, 128, 256, 512, 1024])
+
+    corr = lattice_correlators(
+        iw, G, W, eta, beta,
+        return_diagnostics=True, diagnostic_n_values=diag_n,
+    )
+
+    assert 'diagnostics' in corr
+    d = corr['diagnostics']
+    assert np.array_equal(d['n_matsubara'], diag_n)
+    assert d['hh'].shape == (len(eta), len(diag_n))
+    assert d['dh'].shape == (len(eta), len(diag_n))
+    np.testing.assert_allclose(d['hh'][:, -1], corr['hh'], atol=1e-12)
+    np.testing.assert_allclose(d['dh'][:, -1], corr['dh'], atol=1e-12)

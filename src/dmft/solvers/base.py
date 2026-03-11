@@ -34,7 +34,9 @@ class ImpuritySolver(ABC):
         beta : float
             Inverse temperature.
         sigma_inf : float
-            Static self-energy (high-frequency limit).
+            Static self-energy tail passed by the outer loop.
+            In the current project convention (Option A), impurity
+            Hamiltonians are unshifted and this argument is informational.
 
         Returns
         -------

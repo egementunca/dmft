@@ -64,10 +64,12 @@ When adding new code, keep these sign conventions consistent with existing modul
 2. Compute `G_loc(iw)` and lattice h-sector correlators.
 3. Match lattice ↔ gateway h-correlators to update bath poles `{eps, V}`.
 4. Solve impurity with `{eps, V}`.
-5. Update ghost poles `{eta, W}`:
-   - default: fit dynamic part of impurity self-energy,
-   - optional: impurity ↔ gateway g-correlator matching.
-6. Update `sigma_inf = U * n_imp`, mix, and iterate.
+5. Update `sigma_inf = U * n_imp` (tail constraint, Option A).
+6. Match impurity ↔ gateway g-correlators to update ghost poles `{eta, W}`.
+7. Rebuild `Sigma(iw)` from updated poles and iterate.
+
+Default behavior is now the notes-faithful correlator-matching update for both
+sectors. A debug fallback remains available via `ghost_update_mode="fit"`.
 
 ## 4) Solver Interface
 
@@ -109,12 +111,23 @@ PYTHONPATH=src pytest -q
 
 ```python
 from dmft.config import DMFTParams
-from dmft.solvers.ipt import IPTSolver
+from dmft.solvers.ed import EDSolver
 from dmft.dmft_loop import dmft_loop_two_ghost
 
 p = DMFTParams.half_filling(U=2.0, beta=50.0, M_g=2, M_h=2)
-solver = IPTSolver()
-r = dmft_loop_two_ghost(p, solver, verbose=False)
+p.tol = 1e-4
+p.mix = 0.05
+solver = EDSolver()
+r = dmft_loop_two_ghost(
+    p,
+    solver,
+    verbose=False,
+    ghost_update_mode="correlator",
+    bath_mix=0.05,
+    ghost_mix=0.05,
+    h_reg_strength=1e-2,
+    g_reg_strength=1e-2,
+)
 print(r["Z"], r["n_imp"])
 ```
 
