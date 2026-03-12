@@ -5,7 +5,9 @@ import warnings
 import pytest
 from dmft.config import DMFTParams
 from dmft.solvers.ipt import IPTSolver
+from dmft.solvers.ed import EDSolver
 from dmft.dmft_loop import dmft_loop, dmft_loop_two_ghost
+from dmft.greens_function import self_energy_poles
 
 warnings.filterwarnings('ignore')
 
@@ -63,6 +65,30 @@ def test_variant_a_z_decreases_with_u(ipt_solver):
     r1 = dmft_loop(p1, ipt_solver, verbose=False)
     r2 = dmft_loop(p2, ipt_solver, verbose=False)
     assert r2['Z'] < r1['Z']
+
+
+def test_variant_a_ghost_poles_updated(ipt_solver):
+    """Variant A should keep ghost poles consistent with converged Sigma."""
+    p = _half_filling_params(U=2.0, n_matsubara=512, M_h=2)
+    p.max_iter = 100
+    p.tol = 1e-4
+    r = dmft_loop(p, ipt_solver, verbose=False)
+
+    sigma_poles = self_energy_poles(
+        r['iw'], r['poles'].W, r['poles'].eta, r['poles'].sigma_inf
+    )
+    assert np.max(np.abs(sigma_poles - r['Sigma'])) < 0.1
+
+
+def test_variant_a_ed_converges():
+    """Variant A with ED should converge to a physical metallic solution at U=2."""
+    p = _half_filling_params(U=2.0, beta=50.0, n_matsubara=256, M_g=2, M_h=2)
+    p.max_iter = 300
+    p.tol = 5e-4
+    p.mix = 0.3  # loop applies conservative ED stabilization internally
+    r = dmft_loop(p, EDSolver(), verbose=False)
+    assert r['history'][-1]['diff'] < p.tol
+    assert 0.1 < r['Z'] < 0.9
 
 
 # ---------------------------------------------------------------------------

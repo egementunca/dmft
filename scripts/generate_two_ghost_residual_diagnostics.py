@@ -20,7 +20,7 @@ from dmft.solvers.ed import EDSolver
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REPORT_PATH = ROOT / "TWO_GHOST_RESIDUAL_DIAGNOSTICS.md"
+REPORT_PATH = ROOT / "docs" / "reports" / "TWO_GHOST_RESIDUAL_DIAGNOSTICS.md"
 JSON_PATH = ROOT / "diagnostics" / "two_ghost_residual_diagnostics.json"
 PLOT_DIR = ROOT / "diagnostics"
 

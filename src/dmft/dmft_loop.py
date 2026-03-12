@@ -8,7 +8,8 @@ Variant A (standard): Uses Bethe lattice self-consistency + pole bath fitting.
 5. Solve impurity -> G_imp, Sigma_imp, n_imp
 6. sigma_inf <- U * n_imp (tail constraint for pole representation)
 7. New Sigma from Dyson: Sigma = G_0^{-1} - G_imp^{-1}
-8. Mix, check convergence, iterate
+8. Mix Sigma and refit ghost poles to track mixed self-energy
+9. Check convergence, iterate
 
 Variant B (two-ghost): Uses correlator matching between lattice/impurity
 and the gateway model.
@@ -47,6 +48,9 @@ def dmft_loop(params: DMFTParams, solver: ImpuritySolver,
     and pole representation. The impurity Hamiltonian itself is unshifted
     (Option A), so the solver is called with `sigma_inf=0`.
 
+    Practical ED stabilization in Variant A:
+    - use conservative Sigma mixing to avoid oscillatory ED updates
+
     Parameters
     ----------
     params : DMFTParams
@@ -78,7 +82,13 @@ def dmft_loop(params: DMFTParams, solver: ImpuritySolver,
         )
     poles = initial_poles.copy()
 
-    # Start with initial self-energy from poles
+    is_ed_solver = solver.__class__.__name__ == "EDSolver"
+    mix_sigma = float(np.clip(params.mix, 0.0, 1.0))
+    if is_ed_solver:
+        # ED Sigma updates are much stiffer than IPT; aggressive mixing
+        # can drive the loop into nonphysical fixed points.
+        mix_sigma = min(mix_sigma, 0.01)
+
     Sigma = self_energy_poles(iw, poles.W, poles.eta, poles.sigma_inf)
 
     history = []
@@ -114,9 +124,17 @@ def dmft_loop(params: DMFTParams, solver: ImpuritySolver,
         poles.sigma_inf = params.U * n_imp
 
         # 7. Mix self-energy
-        Sigma_mixed = params.mix * Sigma_new + (1.0 - params.mix) * Sigma
+        Sigma_mixed = mix_sigma * Sigma_new + (1.0 - mix_sigma) * Sigma
 
-        # 8. Convergence check
+        # 8. Keep the ghost pole representation synchronized with Sigma.
+        # This is needed for pole-based observables (e.g. real-axis A(w)).
+        W_new, eta_new = fit_self_energy_poles(
+            Sigma_mixed, iw, poles.sigma_inf, params.M_h, symmetric=True
+        )
+        poles.W = W_new
+        poles.eta = eta_new
+
+        # 9. Convergence check
         diff = np.max(np.abs(Sigma_mixed - Sigma)) / max(np.max(np.abs(Sigma)), 1e-10)
 
         # Store history
@@ -126,6 +144,7 @@ def dmft_loop(params: DMFTParams, solver: ImpuritySolver,
             'diff': diff,
             'Z': Z,
             'n_imp': n_imp,
+            'mix_sigma': mix_sigma,
         }
         history.append(info)
 

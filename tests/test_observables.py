@@ -7,7 +7,11 @@ from dmft.solvers.ed import EDSolver
 from dmft.observables import (
     quasiparticle_weight,
     impurity_g_correlators,
+    spectral_function_from_poles,
+    check_pole_sigma_consistency,
 )
+from dmft.greens_function import self_energy_poles
+from dmft.config import PoleParams
 
 
 def test_z_noninteracting():
@@ -106,3 +110,41 @@ def test_impurity_g_correlators_complex_hybridization():
 
     np.testing.assert_allclose(corr['gg'], result['bath_gg'], atol=2e-4)
     np.testing.assert_allclose(corr['dg'], result['bath_dg'], atol=2e-3)
+
+
+def test_spectral_function_sum_rule():
+    """Pole-based spectral function should satisfy the unit spectral-weight sum rule."""
+    omega = np.linspace(-20.0, 20.0, 8001)
+    A = spectral_function_from_poles(
+        omega,
+        mu=0.0,
+        eps_d=0.0,
+        V=np.array([0.4, 0.4]),
+        eps=np.array([-0.5, 0.5]),
+        W=np.array([0.0]),
+        eta_poles=np.array([0.0]),
+        sigma_inf=0.0,
+        broadening=0.02,
+    )
+    weight = np.trapezoid(A, omega)
+    assert abs(weight - 1.0) < 0.05
+
+
+def test_check_pole_sigma_consistency():
+    """Consistency helper should return max error and warn above tolerance."""
+    iw = 1j * matsubara_frequencies(256, 50.0)
+    poles = PoleParams(
+        eps=np.array([-0.5, 0.5]),
+        V=np.array([0.3, 0.3]),
+        eta=np.array([-0.4, 0.4]),
+        W=np.array([0.25, 0.25]),
+        sigma_inf=1.0,
+    )
+    sigma_ref = self_energy_poles(iw, poles.W, poles.eta, poles.sigma_inf)
+    err_ok = check_pole_sigma_consistency(poles, sigma_ref, iw, tol=1e-6)
+    assert err_ok < 1e-12
+
+    sigma_bad = sigma_ref + 0.2
+    with pytest.warns(RuntimeWarning):
+        err_bad = check_pole_sigma_consistency(poles, sigma_bad, iw, tol=0.1)
+    assert err_bad > 0.1

@@ -56,7 +56,14 @@ When adding new code, keep these sign conventions consistent with existing modul
 4. Fit `Delta(iw)` to bath poles `{eps, V}`.
 5. Solve impurity model with `{eps, V}`.
 6. Update `sigma_inf = U * n_imp`.
-7. Mix self-energy and check convergence.
+7. Mix self-energy and refit ghost poles `{eta, W}` to the mixed `Sigma`.
+8. Check convergence.
+
+Notes:
+- Variant A keeps the output pole self-energy synchronized with the converged
+  Matsubara `Sigma`, which is required for reliable `spectral_function_from_poles(...)`.
+- For ED in Variant A, the loop applies conservative Sigma mixing internally to
+  reduce oscillatory updates.
 
 ### Variant B (`dmft_loop_two_ghost`)
 

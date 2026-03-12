@@ -1,5 +1,9 @@
 # TWO_GHOST_RESIDUAL_DIAGNOSTICS
 
+> Note: This is a historical diagnostics snapshot from before the latest
+> residual-conditioning fixes. For current behavior, read
+> `docs/reports/RESIDUAL_FIX_NOTES.md`.
+
 ## Scope
 - Conventions kept fixed (Bethe D=1, t=0.5, Option A, symmetric=True).
 - Solver: ED. Variant B default mode: `ghost_update_mode="correlator"`; `fit` only for comparison.

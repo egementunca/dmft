@@ -1,6 +1,7 @@
 """Physical observables: quasiparticle weight, spectral function, free energy."""
 
 import numpy as np
+import warnings
 from .greens_function import hybridization, self_energy_poles
 from .matsubara import (
     fermi_function,
@@ -185,3 +186,34 @@ def impurity_g_correlators(iw: np.ndarray, G_imp: np.ndarray,
     if diagnostics is not None:
         out['diagnostics'] = diagnostics
     return out
+
+
+def check_pole_sigma_consistency(poles, Sigma: np.ndarray, iw: np.ndarray,
+                                 tol: float = 0.1) -> float:
+    """Check consistency between pole self-energy and full Matsubara self-energy.
+
+    Parameters
+    ----------
+    poles : PoleParams-like
+        Object with attributes `W`, `eta`, and `sigma_inf`.
+    Sigma : array, shape (N,)
+        Reference self-energy on the Matsubara grid.
+    iw : array, shape (N,)
+        Matsubara frequencies (1j*w_n) matching `Sigma`.
+    tol : float
+        Warning threshold on max absolute mismatch.
+
+    Returns
+    -------
+    float
+        max_n |Sigma_poles(iw_n) - Sigma(iw_n)|
+    """
+    Sigma_poles = self_energy_poles(iw, poles.W, poles.eta, poles.sigma_inf)
+    max_diff = float(np.max(np.abs(np.asarray(Sigma_poles) - np.asarray(Sigma))))
+    if max_diff > tol:
+        warnings.warn(
+            f"Pole Sigma differs from loop Sigma by {max_diff:.4f} (tol={tol:.4f})",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return max_diff
