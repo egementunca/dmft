@@ -26,6 +26,10 @@ This document describes the current code layout in `src/dmft`, the two DMFT loop
   - Matsubara grids, Fermi function, and summation helpers.
 - `src/dmft/observables.py`
   - `Z`, spectral functions, impurity g-correlators.
+- `src/dmft/phase_scan.py`
+  - Professor-style `GhostDMFT_M` adapter, free-energy terms
+    (`Omega_lat + Omega_imp - Omega_gateway`), branch continuation scan,
+    and phase-boundary plotting.
 - `src/dmft/schur.py`
   - Schur complement utilities and block Green's function helpers.
 - `tests/`
@@ -136,6 +140,24 @@ r = dmft_loop_two_ghost(
     g_reg_strength=1e-2,
 )
 print(r["Z"], r["n_imp"])
+```
+
+### Phase scan (adapter workflow)
+
+```python
+import numpy as np
+from dmft.phase_scan import run_phase_scan, save_scan_outputs
+
+df, boundaries = run_phase_scan(
+    U_vals=np.linspace(2.0, 3.4, 30),
+    T_vals=np.linspace(0.02, 0.20, 20),
+    M=1,
+    n_matsubara=512,
+    mix=0.05,
+    tol=1e-4,
+    maxiter=160,
+)
+save_scan_outputs(df, boundaries, outprefix="diagnostics/phase_scan/ghost_dmft")
 ```
 
 ## 6) Extension Guidelines
