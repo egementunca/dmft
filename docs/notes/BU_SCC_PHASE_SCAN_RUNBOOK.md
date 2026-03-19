@@ -67,13 +67,18 @@ python3 scripts/run_phase_scan.py \
 
 ## Batch Job Template (SLURM)
 
-Create `jobs/phase_scan_m2.slurm`:
+Ready-to-use templates now exist in the repo:
+
+- `jobs/phase_scan_m1_baseline.sh`
+- `jobs/phase_scan_m2_quality.sh`
+
+Example structure (quality job):
 
 ```bash
 #!/bin/bash
-#SBATCH --job-name=dmft_phase_m2
-#SBATCH --output=logs/dmft_phase_m2_%j.out
-#SBATCH --error=logs/dmft_phase_m2_%j.err
+#SBATCH --job-name=dmft_m2_quality
+#SBATCH --output=logs/dmft_m2_quality_%j.out
+#SBATCH --error=logs/dmft_m2_quality_%j.err
 #SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
@@ -94,13 +99,14 @@ python3 scripts/run_phase_scan.py \
   --u-min 2.0 --u-max 3.4 --nu 30 \
   --t-min 0.02 --t-max 0.20 --nt 20 \
   --M 2 --n-iw 512 --mix 0.2 --tol 1e-6 --maxiter 180 \
+  --require-converged --no-compat-mode \
   --outprefix "$OUT/main"
 ```
 
 Submit:
 
 ```bash
-sbatch jobs/phase_scan_m2.slurm
+sbatch jobs/phase_scan_m2_quality.sh
 ```
 
 ## Monitoring and Collection
@@ -154,4 +160,3 @@ Tier 3 (stability check):
 - Add structured run config files (YAML/JSON) for exact provenance.
 - Split `U` windows across job arrays for faster wall-clock throughput.
 - Auto-generate a per-run summary markdown after each batch completion.
-

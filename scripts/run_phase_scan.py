@@ -24,6 +24,7 @@ def parse_args():
     p.add_argument("--tol", type=float, default=1e-8)
     p.add_argument("--maxiter", type=int, default=100)
     p.add_argument("--no-compat-mode", action="store_true")
+    p.add_argument("--require-converged", action="store_true")
     p.add_argument("--use-branch-filters", action="store_true")
     p.add_argument("--z-metal-min", type=float, default=0.12)
     p.add_argument("--z-ins-max", type=float, default=0.08)
@@ -60,6 +61,7 @@ def main():
         tol=args.tol,
         maxiter=args.maxiter,
         compat_mode=not args.no_compat_mode,
+        require_converged_for_valid=args.require_converged,
         use_branch_filters=args.use_branch_filters,
         z_metal_min=args.z_metal_min,
         z_ins_max=args.z_ins_max,

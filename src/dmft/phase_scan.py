@@ -397,6 +397,7 @@ def run_phase_scan(
     tol: float = 1e-8,
     maxiter: int = 100,
     compat_mode: bool = True,
+    require_converged_for_valid: bool = False,
     use_branch_filters: bool = False,
     z_metal_min: float = 0.12,
     z_ins_max: float = 0.08,
@@ -421,6 +422,12 @@ def run_phase_scan(
 
     U_vals = np.asarray(U_vals, dtype=float)
     T_vals = np.asarray(T_vals, dtype=float)
+    if U_vals.ndim != 1 or T_vals.ndim != 1:
+        raise ValueError("U_vals and T_vals must be 1D arrays")
+    if len(U_vals) == 0 or len(T_vals) == 0:
+        raise ValueError("U_vals and T_vals must be non-empty")
+    if np.any(T_vals <= 0):
+        raise ValueError("All temperatures must satisfy T > 0")
     rows = []
 
     for T in T_vals:
@@ -485,7 +492,10 @@ def run_phase_scan(
                         "conv_metal": bool(mr["converged"]),
                     }
                 )
-                row["metal_valid"] = bool(np.isfinite(row["F_metal"]))
+                row["metal_valid"] = bool(
+                    np.isfinite(row["F_metal"])
+                    and ((not require_converged_for_valid) or bool(mr["converged"]))
+                )
             else:
                 row.update(
                     {
@@ -519,7 +529,10 @@ def run_phase_scan(
                         "conv_insulator": bool(ir["converged"]),
                     }
                 )
-                row["ins_valid"] = bool(np.isfinite(row["F_insulator"]))
+                row["ins_valid"] = bool(
+                    np.isfinite(row["F_insulator"])
+                    and ((not require_converged_for_valid) or bool(ir["converged"]))
+                )
             else:
                 row.update(
                     {
@@ -538,7 +551,7 @@ def run_phase_scan(
                 )
 
             if compat_mode:
-                both_finite = bool(np.isfinite(row["F_metal"]) and np.isfinite(row["F_insulator"]))
+                both_finite = bool(row["metal_valid"] and row["ins_valid"])
                 if both_finite:
                     row["deltaF"] = row["F_metal"] - row["F_insulator"]
                     row["stable_phase"] = "metal" if row["deltaF"] <= 0 else "insulator"
