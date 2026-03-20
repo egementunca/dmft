@@ -1,21 +1,24 @@
-#!/bin/bash
-#SBATCH --job-name=dmft_m1_base
-#SBATCH --output=logs/dmft_m1_base_%j.out
-#SBATCH --error=logs/dmft_m1_base_%j.err
-#SBATCH --time=08:00:00
-#SBATCH --cpus-per-task=2
-#SBATCH --mem=8G
+#!/bin/bash -l
+#$ -N dmft_m1_base
+#$ -o logs/dmft_m1_base_$JOB_ID.out
+#$ -e logs/dmft_m1_base_$JOB_ID.err
+#$ -l h_rt=08:00:00
+#$ -pe omp 2
+#$ -l mem_per_core=4G
+#$ -P compcircuits
+#$ -j n
 
 set -euo pipefail
 
 cd $HOME/dmft
+module load python3/3.10.12
 source .venv/bin/activate
 export PYTHONPATH=src
 export MPLBACKEND=Agg
 export MPLCONFIGDIR=/tmp/$USER/mplconfig
 mkdir -p "$MPLCONFIGDIR" logs
 
-RUN=2026-03-19_m1_baseline
+RUN=2026-03-20_m1_baseline
 OUT=diagnostics/phase_scan/runs/$RUN/main
 mkdir -p diagnostics/phase_scan/runs/$RUN
 
