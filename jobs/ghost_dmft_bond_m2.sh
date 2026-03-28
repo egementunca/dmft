@@ -1,14 +1,17 @@
-#!/bin/bash
-#SBATCH --job-name=gdmft_bond_m2
-#SBATCH --output=logs/gdmft_bond_m2_%j.out
-#SBATCH --error=logs/gdmft_bond_m2_%j.err
-#SBATCH --time=12:00:00
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=8G
+#!/bin/bash -l
+#$ -N gdmft_bond_m2
+#$ -o logs/gdmft_bond_m2_$JOB_ID.out
+#$ -e logs/gdmft_bond_m2_$JOB_ID.err
+#$ -l h_rt=12:00:00
+#$ -pe omp 4
+#$ -l mem_per_core=2G
+#$ -P compcircuits
+#$ -j n
 
 set -euo pipefail
 
 cd $HOME/dmft
+module load python3/3.10.12
 source .venv/bin/activate
 
 # Multi-threaded BLAS for 4900x4900 eigh (M=2 block-diag ED)

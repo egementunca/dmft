@@ -309,3 +309,156 @@ def gateway_correlators_from_matsubara(
     if diagnostics is not None:
         out['diagnostics'] = diagnostics
     return out
+
+
+# ═══════════════════════════════════════════════════════════
+# Static correlator functions for bond-scheme DMFT
+# ═══════════════════════════════════════════════════════════
+
+def gateway_statics(beta: float, eta, W_ghost, eps, V, M: int, shift: float):
+    """Single-site static gateway correlators via diagonalization.
+
+    H_gw: d + M g-ghosts + M h-ghosts (quadratic, 1 + 2M orbitals).
+
+    Parameters
+    ----------
+    beta : float
+        Inverse temperature.
+    eta : array, shape (M,)
+        h-ghost energies.
+    W_ghost : array, shape (M,)
+        h-ghost hybridizations.
+    eps : array, shape (M,)
+        g-ghost (bath) energies.
+    V : array, shape (M,)
+        g-ghost hybridizations.
+    M : int
+        Number of ghost poles.
+    shift : float
+        On-site shift for d-orbital.
+
+    Returns
+    -------
+    nh : array, shape (M,)
+    dh : array, shape (M,)
+    ng : array, shape (M,)
+    dg : array, shape (M,)
+    """
+    from numpy.linalg import eigh as _eigh
+    n = 1 + 2 * M
+    H = np.zeros((n, n))
+    H[0, 0] = shift
+    for l in range(M):
+        H[1 + l, 1 + l] = eps[l]
+        H[0, 1 + l] = H[1 + l, 0] = V[l]
+        H[1 + M + l, 1 + M + l] = eta[l]
+        H[0, 1 + M + l] = H[1 + M + l, 0] = W_ghost[l]
+    ev, Uv = _eigh(H)
+    f = _fermi_gw(ev, beta)
+    rho = (Uv * f) @ Uv.T
+    ng = np.array([float(rho[1 + l, 1 + l]) for l in range(M)])
+    dg = np.array([float(rho[0, 1 + l]) for l in range(M)])
+    nh = np.array([float(rho[1 + M + l, 1 + M + l]) for l in range(M)])
+    dh = np.array([float(rho[0, 1 + M + l]) for l in range(M)])
+    return nh, dh, ng, dg
+
+
+def bond_gateway_statics(beta: float, eta, W_ghost, eps, V,
+                          etab, Bh, epsb, Bg, M: int, t: float, shift: float):
+    """Two-site quadratic bond gateway correlators.
+
+    H2_gw: d0, d1 + 2M site-local h-ghosts + M bond hb-ghosts
+           + 2M site-local g-ghosts + M bond gb-ghosts.
+    Matrix dimension: n_gw = 2 + 6M.
+
+    Parameters
+    ----------
+    beta : float
+        Inverse temperature.
+    eta, W_ghost : arrays, shape (M,)
+        Site-local h-ghost parameters.
+    eps, V : arrays, shape (M,)
+        Site-local g-ghost parameters.
+    etab, Bh : arrays, shape (M,)
+        Bond hb-ghost parameters.
+    epsb, Bg : arrays, shape (M,)
+        Bond gb-ghost parameters.
+    M : int
+        Number of ghost poles.
+    t : float
+        Hopping between the two sites.
+    shift : float
+        On-site shift for d-orbitals.
+
+    Returns
+    -------
+    nh, dh : arrays, shape (M,)
+        Site-local h-ghost correlators (averaged over two sites).
+    nhb, dhb : arrays, shape (M,)
+        Bond hb-ghost correlators.
+    ng, dg : arrays, shape (M,)
+        Site-local g-ghost correlators (averaged over two sites).
+    ngb, dgb : arrays, shape (M,)
+        Bond gb-ghost correlators.
+    n_site : float
+        d-orbital occupancy on site 0.
+    """
+    from numpy.linalg import eigh as _eigh
+    n_gw = 2 + 6 * M
+    H = np.zeros((n_gw, n_gw))
+    H[0, 0] = shift
+    H[1, 1] = shift
+    H[0, 1] = H[1, 0] = -t
+
+    for l in range(M):
+        # site-local h-ghosts: h on site 0 at 2+l, h on site 1 at 2+M+l
+        H[2 + l, 2 + l] = eta[l]
+        H[0, 2 + l] = H[2 + l, 0] = W_ghost[l]
+        H[2 + M + l, 2 + M + l] = eta[l]
+        H[1, 2 + M + l] = H[2 + M + l, 1] = W_ghost[l]
+        # bond hb-ghosts at 2+2M+l
+        H[2 + 2 * M + l, 2 + 2 * M + l] = etab[l]
+        H[0, 2 + 2 * M + l] = H[2 + 2 * M + l, 0] = Bh[l]
+        H[1, 2 + 2 * M + l] = H[2 + 2 * M + l, 1] = Bh[l]
+        # site-local g-ghosts: g on site 0 at 2+3M+l, g on site 1 at 2+4M+l
+        H[2 + 3 * M + l, 2 + 3 * M + l] = eps[l]
+        H[0, 2 + 3 * M + l] = H[2 + 3 * M + l, 0] = V[l]
+        H[2 + 4 * M + l, 2 + 4 * M + l] = eps[l]
+        H[1, 2 + 4 * M + l] = H[2 + 4 * M + l, 1] = V[l]
+        # bond gb-ghosts at 2+5M+l
+        H[2 + 5 * M + l, 2 + 5 * M + l] = epsb[l]
+        H[0, 2 + 5 * M + l] = H[2 + 5 * M + l, 0] = Bg[l]
+        H[1, 2 + 5 * M + l] = H[2 + 5 * M + l, 1] = Bg[l]
+
+    ev, Uv = _eigh(H)
+    f = _fermi_gw(ev, beta)
+    rho = (Uv * f) @ Uv.T
+
+    nh = np.array([0.5 * (rho[2 + l, 2 + l] + rho[2 + M + l, 2 + M + l])
+                   for l in range(M)])
+    dh = np.array([0.5 * (rho[0, 2 + l] + rho[1, 2 + M + l])
+                   for l in range(M)])
+    nhb = np.array([rho[2 + 2 * M + l, 2 + 2 * M + l] for l in range(M)])
+    dhb = np.array([0.5 * (rho[0, 2 + 2 * M + l] + rho[1, 2 + 2 * M + l])
+                    for l in range(M)])
+    ng = np.array([0.5 * (rho[2 + 3 * M + l, 2 + 3 * M + l]
+                          + rho[2 + 4 * M + l, 2 + 4 * M + l])
+                   for l in range(M)])
+    dg = np.array([0.5 * (rho[0, 2 + 3 * M + l] + rho[1, 2 + 4 * M + l])
+                   for l in range(M)])
+    ngb = np.array([rho[2 + 5 * M + l, 2 + 5 * M + l] for l in range(M)])
+    dgb = np.array([rho[0, 2 + 5 * M + l] + rho[1, 2 + 5 * M + l]
+                    for l in range(M)])
+    n_site = float(rho[0, 0])
+    return nh, dh, nhb, dhb, ng, dg, ngb, dgb, n_site
+
+
+def _fermi_gw(e, beta: float):
+    """Numerically stable Fermi function for gateway diagonalization."""
+    x = beta * np.asarray(e, dtype=float)
+    out = np.empty_like(x)
+    out[x > 500] = 0.0
+    out[x < -500] = 1.0
+    m = (x >= -500) & (x <= 500)
+    out[m] = 1.0 / (np.exp(x[m]) + 1.0)
+    return out

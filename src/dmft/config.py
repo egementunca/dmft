@@ -88,3 +88,24 @@ class PoleParams:
             W=self.W.copy(),
             sigma_inf=self.sigma_inf,
         )
+
+
+@dataclass
+class BondParams:
+    """Parameters for the bond-scheme solver.
+
+    The bond solver uses 8M+1 unknowns stored as plain arrays/dicts,
+    not as PoleParams.  This dataclass holds only solver configuration.
+    """
+
+    M: int = 1              # ghost poles (1 or 2)
+    U: float = 1.3          # Hubbard U
+    t: float = 0.5          # hopping
+    n_k: int = 30           # k-grid size per direction
+    mode: str = 'both'      # 'ss', 'bond', or 'both'
+    mix_ss: float = 0.5     # single-site mixing
+    mix_bond: float = 0.3   # bond solver mixing
+    tol_ss: float = 1e-9    # single-site convergence tolerance
+    tol_bond: float = 1e-9  # bond solver convergence tolerance
+    maxiter_ss: int = 200   # single-site max iterations
+    maxiter_bond: int = 200  # bond solver max iterations

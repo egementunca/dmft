@@ -206,3 +206,173 @@ def lattice_correlators(iw: np.ndarray, G_dd_lat: np.ndarray,
     if diagnostics is not None:
         out['diagnostics'] = diagnostics
     return out
+
+
+# ═══════════════════════════════════════════════════════════
+# Square lattice for bond-scheme DMFT
+# ═══════════════════════════════════════════════════════════
+
+def make_square_lattice(t: float, n_k: int = 30):
+    """Construct square lattice dispersion and bond form factor.
+
+    Parameters
+    ----------
+    t : float
+        Nearest-neighbour hopping.
+    n_k : int
+        Number of k-points per direction.
+
+    Returns
+    -------
+    EPS : ndarray, shape (n_k**2,)
+        Dispersion ε_k = -2t(cos kx + cos ky).
+    GAM : ndarray, shape (n_k**2,)
+        Bond form factor γ_k = ½(cos kx + cos ky).
+    W : ndarray, shape (n_k**2,)
+        Uniform BZ weights (sum to 1).
+    D : float
+        Half-bandwidth 4t.
+    z : int
+        Coordination number (4).
+    """
+    kx = np.linspace(-np.pi, np.pi, n_k, endpoint=False)
+    ky = np.linspace(-np.pi, np.pi, n_k, endpoint=False)
+    KX, KY = np.meshgrid(kx, ky)
+    EPS = (-2 * t * (np.cos(KX) + np.cos(KY))).ravel()
+    GAM = (0.5 * (np.cos(KX) + np.cos(KY))).ravel()
+    W = np.ones(n_k**2) / n_k**2
+    D = 4 * t
+    z = 4
+    return EPS, GAM, W, D, z
+
+
+def lattice_statics(beta: float, eta, W_ghost, M: int, EPS, EPS_W, shift: float):
+    """BZ-summed static h-sector correlators on the square lattice.
+
+    Hamiltonian per k-point: d + M h-ghosts (quadratic).
+    Correlators computed via the matrix Fermi function.
+
+    Parameters
+    ----------
+    beta : float
+        Inverse temperature.
+    eta : array, shape (M,)
+        h-ghost energies.
+    W_ghost : array, shape (M,)
+        h-ghost hybridizations.
+    M : int
+        Number of h-ghost poles.
+    EPS : array, shape (N_k,)
+        Lattice dispersion.
+    EPS_W : array, shape (N_k,)
+        BZ weights.
+    shift : float
+        On-site shift for d-orbital.
+
+    Returns
+    -------
+    nh : array, shape (M,)
+        ⟨h_l† h_l⟩ averaged over BZ.
+    dh : array, shape (M,)
+        ⟨d† h_l⟩ averaged over BZ.
+    """
+    N = len(EPS)
+    n = 1 + M
+    H = np.zeros((N, n, n))
+    H[:, 0, 0] = EPS + shift
+    for l in range(M):
+        H[:, 1 + l, 1 + l] = eta[l]
+        H[:, 0, 1 + l] = H[:, 1 + l, 0] = W_ghost[l]
+    ev, Uv = np.linalg.eigh(H)
+    f = _fermi_static(ev, beta)
+    nh = np.array([
+        float(np.dot(EPS_W, np.sum(Uv[:, 1 + l, :] * f * Uv[:, 1 + l, :], axis=1)))
+        for l in range(M)
+    ])
+    dh = np.array([
+        float(np.dot(EPS_W, np.sum(Uv[:, 0, :] * f * Uv[:, 1 + l, :], axis=1)))
+        for l in range(M)
+    ])
+    return nh, dh
+
+
+def bond_lattice_statics(beta: float, eta, W_ghost, etab, Bh, M: int,
+                          EPS, GAM, EPS_W, shift: float):
+    """BZ-summed static correlators for bond-extended lattice.
+
+    Hamiltonian per k-point: d + M site-local h-ghosts + M bond hb-ghosts.
+    The bond hb-ghosts couple to d via Bh * γ_k (k-dependent hybridization).
+
+    Parameters
+    ----------
+    beta : float
+        Inverse temperature.
+    eta : array, shape (M,)
+        Site-local h-ghost energies.
+    W_ghost : array, shape (M,)
+        Site-local h-ghost hybridizations.
+    etab : array, shape (M,)
+        Bond hb-ghost energies.
+    Bh : array, shape (M,)
+        Bond hb-ghost hybridizations.
+    M : int
+        Number of ghost poles.
+    EPS : array, shape (N_k,)
+        Lattice dispersion.
+    GAM : array, shape (N_k,)
+        Bond form factor γ_k.
+    EPS_W : array, shape (N_k,)
+        BZ weights.
+    shift : float
+        On-site shift for d-orbital.
+
+    Returns
+    -------
+    nh : array, shape (M,)
+        ⟨h_l† h_l⟩ (site-local h-ghosts).
+    dh : array, shape (M,)
+        ⟨d† h_l⟩ (site-local h-ghosts).
+    nhb : array, shape (M,)
+        ⟨hb_l† hb_l⟩ (bond hb-ghosts).
+    dhb : array, shape (M,)
+        ⟨d† hb_l⟩ weighted by γ_k (bond hb-ghosts).
+    """
+    N = len(EPS)
+    n = 1 + 2 * M
+    H = np.zeros((N, n, n))
+    H[:, 0, 0] = EPS + shift
+    for l in range(M):
+        H[:, 1 + l, 1 + l] = eta[l]
+        H[:, 0, 1 + l] = H[:, 1 + l, 0] = W_ghost[l]
+        H[:, 1 + M + l, 1 + M + l] = etab[l]
+        H[:, 0, 1 + M + l] = H[:, 1 + M + l, 0] = Bh[l] * GAM
+    ev, Uv = np.linalg.eigh(H)
+    f = _fermi_static(ev, beta)
+    nh = np.array([
+        float(np.dot(EPS_W, np.sum(Uv[:, 1 + l, :] * f * Uv[:, 1 + l, :], axis=1)))
+        for l in range(M)
+    ])
+    dh = np.array([
+        float(np.dot(EPS_W, np.sum(Uv[:, 0, :] * f * Uv[:, 1 + l, :], axis=1)))
+        for l in range(M)
+    ])
+    nhb = np.array([
+        float(np.dot(EPS_W, np.sum(Uv[:, 1 + M + l, :] * f * Uv[:, 1 + M + l, :], axis=1)))
+        for l in range(M)
+    ])
+    dhb = np.array([
+        float(np.dot(EPS_W, np.sum(Uv[:, 0, :] * f * Uv[:, 1 + M + l, :], axis=1) * GAM))
+        for l in range(M)
+    ])
+    return nh, dh, nhb, dhb
+
+
+def _fermi_static(e, beta: float):
+    """Numerically stable Fermi function for arrays (static, no Matsubara)."""
+    x = beta * np.asarray(e, dtype=float)
+    out = np.empty_like(x)
+    out[x > 500] = 0.0
+    out[x < -500] = 1.0
+    m = (x >= -500) & (x <= 500)
+    out[m] = 1.0 / (np.exp(x[m]) + 1.0)
+    return out

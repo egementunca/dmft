@@ -72,7 +72,9 @@ def make_fock_basis(n_modes, n_particles):
     sidx = {int(s): i for i, s in enumerate(states)}
     return states, sidx
 
-def popcount(x): return int(x).bit_count()
+def popcount(x):
+    xi = int(x)
+    return xi.bit_count() if hasattr(xi, "bit_count") else bin(xi).count("1")
 
 def c_op(dim, mode):
     C = np.zeros((dim, dim))
@@ -578,6 +580,8 @@ def run_sweep(U=1.3, t=0.5, M=1, mode='both', n_k=30, T_vals=None,
         eps0=np.array([-0.1,-0.05]);  V0=np.array([0.4,0.3])
 
     results = []
+    # Persist bond-only warm-start state across temperatures.
+    bond_state = {}
 
     print(f'\nGhost-DMFT  M={M}  U={U}  t={t}  D={D:.1f}  mode={mode}')
     print(f'  {8*M+1} equations, {8*M+1} unknowns')
@@ -598,12 +602,22 @@ def run_sweep(U=1.3, t=0.5, M=1, mode='both', n_k=30, T_vals=None,
         row = dict(T=Tv, ToverD=Tv/D, beta=beta, docc_ss=ss['docc'])
 
         if mode in ('bond','both'):
+            # Inject previous converged bond state into current single-site seed.
+            ss.update(bond_state)
             rb = solve_bond(beta, ss, M, U, t, mu, shift, EPS, GAM, EPS_W, z,
                             mix=mix_bond, tol=tol_bond,
                             maxiter=maxiter_bond, verbose=verbose)
             row.update(docc_bpk=rb['docc_bpk'], docc_2=rb['docc_2'],
                        docc_1=rb['docc_1'], hop=rb['hop'],
                        dmu=rb['dmu'], res=rb['res'], iters_bond=rb['iters'])
+            if rb['res'] < 1e-4:
+                bond_state = {
+                    'etab': rb['etab'].copy(),
+                    'Bh': rb['Bh'].copy(),
+                    'epsb': rb['epsb'].copy(),
+                    'Bg': rb['Bg'].copy(),
+                    'dmu': rb['dmu'],
+                }
 
         dt=time.time()-t0
         line=f'  {Tv:6.4f}  {Tv/D:7.4f}  {ss["docc"]:10.6f}'
@@ -616,12 +630,6 @@ def run_sweep(U=1.3, t=0.5, M=1, mode='both', n_k=30, T_vals=None,
         results.append(row)
         # warm-start SS parameters
         eta0,W0,eps0,V0 = ss['eta'],ss['W'],ss['eps'],ss['V']
-        # warm-start bond parameters from converged solution
-        if mode in ('bond','both') and rb['res'] < 1e-4:
-            ss['etab'] = rb['etab']; ss['Bh'] = rb['Bh']
-            ss['epsb'] = rb['epsb']; ss['Bg'] = rb['Bg']
-            ss['dmu']  = rb['dmu']
-
     return results, D
 
 # ═══════════════════════════════════════════════════════════
