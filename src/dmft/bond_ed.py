@@ -19,6 +19,51 @@ from numpy.linalg import eigh
 from itertools import combinations
 from functools import lru_cache
 
+# ═══════════════════════════════════════════════════════════
+# GPU support (CuPy / cuSOLVER)
+# ═══════════════════════════════════════════════════════════
+try:
+    import cupy as cp
+    _CUPY_AVAILABLE = True
+except ImportError:
+    _CUPY_AVAILABLE = False
+
+_gpu_state = [False]   # _gpu_state[0]: GPU active flag (mutable, set by _init_gpu)
+_GPU_DIM_THRESHOLD = 256  # only dispatch sectors above this dimension
+
+
+def _init_gpu(requested):
+    """Attempt to enable GPU. Returns True if GPU is active.
+
+    Call this from the entry-point script before running the sweep:
+      from dmft.bond_ed import _init_gpu
+      _init_gpu(not args.no_gpu)
+    """
+    if not requested:
+        return False
+    if not _CUPY_AVAILABLE:
+        import sys
+        print('WARNING: GPU requested but CuPy not found; falling back to CPU.',
+              file=sys.stderr)
+        return False
+    try:
+        cp.cuda.Device(0).use()
+        _gpu_state[0] = True
+        return True
+    except cp.cuda.runtime.CUDARuntimeError as e:
+        import sys
+        print(f'WARNING: GPU init failed ({e}); falling back to CPU.', file=sys.stderr)
+        return False
+
+
+def _eigh(H):
+    """Diagonalize a real symmetric matrix, routing to GPU for large sectors."""
+    if _gpu_state[0] and H.shape[0] >= _GPU_DIM_THRESHOLD:
+        H_gpu = cp.asarray(H)
+        ev_gpu, evec_gpu = cp.linalg.eigh(H_gpu)
+        return cp.asnumpy(ev_gpu), cp.asnumpy(evec_gpu)
+    return eigh(H)
+
 
 # ═══════════════════════════════════════════════════════════
 # Low-level Fock-space utilities
@@ -309,7 +354,7 @@ def build_H2(beta, eps, V, epsb, Bg, dmu, M, U, mu, t, ed=0.0):
                 amp = Bg[ampinfo[1]]
             H[rows, cols] += amp * signs
 
-        ev, evec = eigh(H)
+        ev, evec = _eigh(H)   # GPU-accelerated for large sectors
         E0 = float(ev.min())
         if global_E0 is None or E0 < global_E0:
             global_E0 = E0
