@@ -23,8 +23,10 @@ export MPLBACKEND=Agg
 export MPLCONFIGDIR=/tmp/$USER/mplconfig
 mkdir -p "$MPLCONFIGDIR" logs
 
-# User's own codebase implementation (src/dmft/bond.py)
+# Internal codebase (src/dmft/bond.py), M1g=2 M2g=2 Mbg=1
 python3 scripts/run_bond_sweep.py \
-  --M 2 --U 1.3 --t 0.5 \
-  --mode both --nk 30 --verbose \
-  --out ghost_dmft_square_M2_U1.3_t0.5_both_MINE.dat
+  --M1g 2 --M2g 2 --Mbg 1 \
+  --U 1.3 --t 0.5 \
+  --nT 30 --Tmin 0.02 --Tmax 0.5 \
+  --nk 30 --verbose --no-gpu \
+  --tag M2_U1.3_t0.5

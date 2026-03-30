@@ -200,6 +200,235 @@ def _get_H2_sector_cache(M, nup):
 
 
 # ═══════════════════════════════════════════════════════════
+# Corrected impurity functions (professor's bond_new, March 2026)
+# ═══════════════════════════════════════════════════════════
+
+def impurity1_statics(beta, eps1, V1, M1g, U, dmu):
+    """Single-site interacting impurity: d + M1g g1-ghosts.
+
+    ed = -U/2 - dmu  (half-filling shift).
+
+    Parameters
+    ----------
+    beta : float
+    eps1 : array, shape (M1g,)
+    V1   : array, shape (M1g,)
+    M1g  : int
+    U    : float
+    dmu  : float   chemical potential correction
+
+    Returns
+    -------
+    ng1  : array (M1g,)  <g1_l† g1_l> spin-up
+    dg1  : array (M1g,)  <d† g1_l> spin-up
+    nd   : float         <n_d> spin-up
+    docc : float         <n_d_up n_d_down>
+    """
+    ed = -U / 2.0 - dmu
+    Cd, C, n_ops = _get_impurity_ops(M1g)
+
+    def n(orb, spin):
+        return n_ops[2 * orb + spin]
+
+    H = ed * (n(0, 0) + n(0, 1)) + U * (n(0, 0) @ n(0, 1))
+    for l in range(M1g):
+        orb = 1 + l
+        H += eps1[l] * (n(orb, 0) + n(orb, 1))
+        H += V1[l] * (Cd[2*orb+0] @ C[0] + Cd[0] @ C[2*orb+0])
+        H += V1[l] * (Cd[2*orb+1] @ C[1] + Cd[1] @ C[2*orb+1])
+
+    ev, evec = eigh(H)
+    E0 = ev.min()
+    with np.errstate(over='ignore', invalid='ignore'):
+        w = np.exp(np.clip(-beta * (ev - E0), -700, 700))
+        prob = w / w.sum()
+
+        def avg(O):
+            return float(np.sum(prob * np.diag(evec.T @ O @ evec)))
+
+        ng1  = np.array([avg(n(1 + l, 0)) for l in range(M1g)])
+        dg1  = np.array([avg(Cd[0] @ C[2*(1 + l)]) for l in range(M1g)])
+        nd   = avg(n(0, 0))
+        docc = avg(n(0, 0) @ n(0, 1))
+    return ng1, dg1, nd, docc
+
+
+@lru_cache(maxsize=None)
+def _get_imp2_sector(Norb, nup, ndn):
+    """Cached (nup, ndn) sector basis for the two-site impurity."""
+    if nup < 0 or ndn < 0 or nup > Norb or ndn > Norb:
+        return np.zeros(0, dtype=np.int32), {}
+    up_states = np.array([sum(1 << b for b in bits)
+                          for bits in combinations(range(Norb), nup)],
+                         dtype=np.int32)
+    dn_states = np.array([sum(1 << b for b in bits)
+                          for bits in combinations(range(Norb), ndn)],
+                         dtype=np.int32)
+    states = np.empty(len(up_states) * len(dn_states), dtype=np.int32)
+    k = 0
+    for su in up_states:
+        for sd in dn_states:
+            states[k] = int(su) | (int(sd) << Norb)
+            k += 1
+    sidx = {int(s): i for i, s in enumerate(states)}
+    return states, sidx
+
+
+def impurity2_statics(beta, eps2, V2, epsb, Bg, M2g, Mbg, U, t, dmu):
+    """Two-site interacting impurity: d1, d2 + M2g LOCAL g2-ghosts + Mbg SHARED gb-ghosts.
+
+    Grand-canonical (nup, ndn) sector blocking for performance.
+    GPU dispatch via _eigh for sectors >= _GPU_DIM_THRESHOLD.
+
+    Orbital layout (per spin):
+      0=d1, 1=d2,
+      2..2+M2g-1              = g2_site1 (LOCAL, couples to d1),
+      2+M2g..2+2*M2g-1        = g2_site2 (LOCAL, couples to d2),
+      2+2*M2g..2+2*M2g+Mbg-1  = gb       (SHARED, couples to both d1 and d2)
+
+    Hop operators c†_dst c_src with dst,src < Norb (spin-up) map within the
+    same (nup, ndn) sector, so off-diagonal correlators are computed per-block.
+
+    Parameters
+    ----------
+    beta : float
+    eps2, V2 : arrays, shape (M2g,)
+    epsb, Bg : arrays, shape (Mbg,)
+    M2g, Mbg : int
+    U    : float
+    t    : float   d1-d2 hopping
+    dmu  : float   chemical potential correction
+
+    Returns
+    -------
+    ng2  : array (M2g,)   <g2_l† g2_l> averaged over site1/site2, spin-up
+    dg2  : array (M2g,)   0.5*(<d1†g2_site1_l> + <d2†g2_site2_l>)
+    ngb  : array (Mbg,)   <gb_l† gb_l> spin-up
+    dgb  : array (Mbg,)   <d1†gb_l> + <d2†gb_l>
+    nd   : float          0.5*(<n_d1> + <n_d2>) spin-up
+    docc : float          0.5*(<n_d1_up n_d1_dn> + <n_d2_up n_d2_dn>)
+    hop  : float          <d1†_up d2_up>
+    """
+    eps2 = np.asarray(eps2, dtype=float)
+    V2   = np.asarray(V2,   dtype=float)
+    epsb = np.asarray(epsb, dtype=float)
+    Bg   = np.asarray(Bg,   dtype=float)
+
+    ed = -U / 2.0 - dmu
+    Norb = 2 + 2*M2g + Mbg   # orbitals per spin
+
+    global_E0 = None
+    block_data = []   # (ev, evec, states, sidx, occ)
+
+    for nup in range(Norb + 1):
+        for ndn in range(Norb + 1):
+            states, sidx = _get_imp2_sector(Norb, nup, ndn)
+            D_ = len(states)
+            if D_ == 0:
+                continue
+
+            # Occupation vectors: occ[m, i] = bit m of states[i]
+            occ = np.zeros((2 * Norb, D_), dtype=float)
+            for m in range(2 * Norb):
+                occ[m] = ((states >> m) & 1).astype(float)
+
+            # Diagonal Hamiltonian elements
+            diag = np.zeros(D_)
+            for sp in range(2):
+                base = sp * Norb
+                diag += ed * (occ[base + 0] + occ[base + 1])
+                for l in range(M2g):
+                    diag += eps2[l] * (occ[base + 2 + l] + occ[base + 2 + M2g + l])
+                for l in range(Mbg):
+                    diag += epsb[l] * occ[base + 2 + 2*M2g + l]
+            # Hubbard U on d1 and d2
+            diag += U * occ[0] * occ[Norb]       # n_d1_up * n_d1_dn
+            diag += U * occ[1] * occ[Norb + 1]   # n_d2_up * n_d2_dn
+
+            H = np.diag(diag)
+
+            # Off-diagonal hopping (src→dst hops c†_dst c_src)
+            def _add_hop(src_orb, dst_orb, amp, H=H, states=states, sidx=sidx):
+                for j, s in enumerate(states):
+                    s2, sgn = _hop_element(int(s), dst_orb, src_orb)
+                    if s2 and s2 in sidx:
+                        H[sidx[s2], j] += amp * sgn
+
+            for sp in range(2):
+                base = sp * Norb
+                _add_hop(base + 0, base + 1, -t)      # d1-d2 hopping
+                _add_hop(base + 1, base + 0, -t)
+                for l in range(M2g):
+                    _add_hop(base + 0,             base + 2 + l,       V2[l])  # d1-g2s1
+                    _add_hop(base + 2 + l,         base + 0,           V2[l])
+                    _add_hop(base + 1,             base + 2 + M2g + l, V2[l])  # d2-g2s2
+                    _add_hop(base + 2 + M2g + l,   base + 1,           V2[l])
+                for l in range(Mbg):
+                    gb = base + 2 + 2*M2g + l
+                    _add_hop(base + 0, gb, Bg[l]);  _add_hop(gb, base + 0, Bg[l])  # d1-gb
+                    _add_hop(base + 1, gb, Bg[l]);  _add_hop(gb, base + 1, Bg[l])  # d2-gb
+
+            ev, evec = _eigh(H)
+            E0 = float(ev.min())
+            if global_E0 is None or E0 < global_E0:
+                global_E0 = E0
+            block_data.append((ev, evec, states, sidx, occ))
+
+    Z = 0.0
+    num_ng2  = np.zeros(M2g)
+    num_dg2  = np.zeros(M2g)
+    num_ngb  = np.zeros(Mbg)
+    num_dgb  = np.zeros(Mbg)
+    num_nd   = 0.0
+    num_docc = 0.0
+    num_hop  = 0.0
+
+    with np.errstate(over='ignore', divide='ignore', invalid='ignore'):
+        for ev, evec, states, sidx, occ in block_data:
+            w = np.exp(np.clip(-beta * (ev - global_E0), -700, 700))
+            Z += float(w.sum())
+            psi2w = (evec**2) @ w   # shape (D_,)
+
+            def avg_diag(vec):
+                return float(vec @ psi2w)
+
+            def avg_hop(src_orb, dst_orb, states=states, sidx=sidx, evec=evec, w=w):
+                """<c†_dst c_src> within this (nup,ndn) block."""
+                val = 0.0
+                for j, s in enumerate(states):
+                    s2, sgn = _hop_element(int(s), dst_orb, src_orb)
+                    if s2 and s2 in sidx:
+                        i = sidx[s2]
+                        val += sgn * float((evec[i, :] * evec[j, :]) @ w)
+                return val
+
+            # Diagonal: ng2, ngb, nd, docc
+            for l in range(M2g):
+                num_ng2[l] += 0.5 * avg_diag(occ[2 + l] + occ[2 + M2g + l])
+            for l in range(Mbg):
+                num_ngb[l] += avg_diag(occ[2 + 2*M2g + l])
+            num_nd   += 0.5 * avg_diag(occ[0] + occ[1])
+            num_docc += 0.5 * avg_diag(occ[0] * occ[Norb] + occ[1] * occ[Norb + 1])
+
+            # Off-diagonal: dg2, dgb, hop (spin-up operators stay in same sector)
+            for l in range(M2g):
+                num_dg2[l] += 0.5 * (avg_hop(2 + l,       0, states, sidx, evec, w)
+                                    + avg_hop(2 + M2g + l, 1, states, sidx, evec, w))
+            for l in range(Mbg):
+                num_dgb[l] += (avg_hop(2 + 2*M2g + l, 0, states, sidx, evec, w)
+                              + avg_hop(2 + 2*M2g + l, 1, states, sidx, evec, w))
+            num_hop += avg_hop(1, 0, states, sidx, evec, w)   # <d1†_up d2_up>
+
+    if Z == 0.0:
+        raise np.linalg.LinAlgError('zero partition function in impurity2')
+
+    return (num_ng2 / Z, num_dg2 / Z,
+            num_ngb / Z, num_dgb / Z,
+            num_nd  / Z, num_docc / Z,
+            num_hop / Z)
+
+
+# ═══════════════════════════════════════════════════════════
 # Single-site interacting impurity (static correlators)
 # ═══════════════════════════════════════════════════════════
 

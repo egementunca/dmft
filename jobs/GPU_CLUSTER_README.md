@@ -2,18 +2,17 @@
 
 ## Why GPU
 
-The bond solver calls `build_H2` inside every residual evaluation of
-`scipy.least_squares`. For M=2 this diagonalizes a **4900×4900** matrix
-(the half-filling sector) plus smaller sectors on every function call —
-up to thousands of times per temperature point.
+The bond solver's `impurity2_statics` diagonalizes (nup, ndn) sectors of the
+two-site interacting cluster. For M=2 the largest sector is ~1225x1225.
+GPU acceleration via CuPy/cuSOLVER speeds up sectors with dimension >= 256.
 
-| Backend | 4900×4900 eigh | Expected sweep time (M=2) |
-|---------|---------------|--------------------------|
-| CPU (NumPy/MKL, 4 cores) | ~0.3–1 s | days |
-| A100 GPU (CuPy/cuSOLVER) | ~0.03–0.05 s | hours |
+| Backend | ~1225x1225 eigh | Expected M=2 sweep (30 T pts) |
+|---------|-----------------|-------------------------------|
+| CPU (NumPy/MKL, 4 cores) | ~10-50 ms | 2-8 hrs |
+| A100 GPU (CuPy/cuSOLVER) | ~3-10 ms | 1-3 hrs |
 
-Only `build_H2` sector diagonalizations are sent to GPU (dimensions ≥ 256).
-All other operations (BZ sums, small gateway/impurity matrices) stay on CPU.
+Only `impurity2_statics` sector diagonalizations are sent to GPU.
+All other operations (BZ sums, gateway matrices) stay on CPU.
 
 ---
 
@@ -43,7 +42,7 @@ python3 -c "import cupy; cupy.cuda.Device(0).use(); print(cupy.__version__)"
 
 If the SCC cuda module version differs (e.g. `cuda/11.8`), install
 `cupy-cuda11x` instead and update the `module load cuda/...` line in
-`bond_m2_prof_patched_gpu.sh`.
+the job script.
 
 ---
 
@@ -51,55 +50,54 @@ If the SCC cuda module version differs (e.g. `cuda/11.8`), install
 
 ```bash
 cd $HOME/dmft
-qsub jobs/bond_m2_prof_patched_gpu.sh
+qsub jobs/bond_m2_internal_gpu.sh
 ```
 
 The script:
-- Requests 1 GPU (`-l gpus=1`) with compute capability ≥ 8.0 (`-l gpu_c=8.0`),
+- Requests 1 GPU (`-l gpus=1`) with compute capability >= 8.0 (`-l gpu_c=8.0`),
   which targets A100 (cc 8.0) and H100 (cc 9.0).
 - Runs a CuPy smoke-test before the main script to catch setup errors early.
-- Writes output to `ghost_dmft_square_M2_U1.3_t0.5_both_GPU.dat`.
-- Log: `logs/bond_m2_prof_patched_gpu_<JOBID>.out`
+- Log: `logs/bond_m2_internal_gpu_<JOBID>.out`
 
 ---
 
 ## Forcing CPU fallback
 
-Pass `--no-gpu` to run the GPU script on CPU (useful for debugging or
-when no GPU node is available):
+Pass `--no-gpu` to disable GPU dispatch:
 
 ```bash
-python3 ghost_dmft_bond_opt_gpu.py --M 2 --U 1.3 --mode both --no-gpu
+python3 scripts/run_bond_sweep.py --M1g 2 --M2g 2 --Mbg 1 --U 1.3 --no-gpu
 ```
 
 CuPy does not need to be installed for `--no-gpu` mode.
 
 ---
 
-## Script inventory
+## Current job scripts
 
-| Script | Code | M | GPU? |
-|--------|------|---|------|
-| `bond_m1_prof_orig.sh` | `ghost_dmft_bond_opt_ORIGINAL.py` | 1 | No |
-| `bond_m1_prof_patched.sh` | `ghost_dmft_bond_opt-copy.py` | 1 | No |
-| `bond_m1_internal.sh` | `scripts/run_bond_sweep.py` | 1 | No |
-| `bond_m2_prof_orig.sh` | `ghost_dmft_bond_opt_ORIGINAL.py` | 2 | No |
-| `bond_m2_prof_patched.sh` | `ghost_dmft_bond_opt-copy.py` | 2 | No |
-| `bond_m2_internal.sh` | `scripts/run_bond_sweep.py` | 2 | No |
-| **`bond_m2_prof_orig_gpu.sh`** | **`ghost_dmft_bond_opt_ORIGINAL_gpu.py`** | **2** | **Yes** |
-| **`bond_m2_prof_patched_gpu.sh`** | **`ghost_dmft_bond_opt_gpu.py`** | **2** | **Yes** |
-| **`bond_m2_internal_gpu.sh`** | **`scripts/run_bond_sweep.py`** (via `bond_ed._init_gpu`) | **2** | **Yes** |
-| `phase_scan_m1_baseline.sh` | `scripts/run_phase_scan.py` | 1 | No |
-| `phase_scan_m2_quality.sh` | `scripts/run_phase_scan.py` | 2 | No |
+| Script | Code | M | GPU? | Wall time |
+|--------|------|---|------|-----------|
+| `bond_m1_internal.sh` | `scripts/run_bond_sweep.py` | 1 | No | 2h |
+| `bond_m1_prof_new.sh` | `ghost_dmft_bond_new.py` | 1 | No | 4h |
+| `bond_m2_internal.sh` | `scripts/run_bond_sweep.py` | 2 | No | 48h |
+| `bond_m2_internal_gpu.sh` | `scripts/run_bond_sweep.py` | 2 | Yes | 4h |
+
+### Legacy (old buggy code, do not use for new runs)
+
+| Script | Code | Notes |
+|--------|------|-------|
+| `bond_m[12]_prof_orig.sh` | `ghost_dmft_bond_opt_ORIGINAL.py` | BPK matching, wrong gamma_k |
+| `bond_m[12]_prof_patched.sh` | `ghost_dmft_bond_opt-copy.py` | Same bugs + temp fix |
+| `bond_m2_prof_*_gpu.sh` | `*_gpu.py` variants | GPU versions of legacy code |
 
 ---
 
 ## Checking job status and output
 
 ```bash
-qstat -u $USER                              # running/queued jobs
-qstat -j <JOBID>                            # detailed job info
-tail -f logs/bond_m2_prof_patched_gpu_<JOBID>.out   # live output
+qstat -u $USER                                   # running/queued jobs
+qstat -j <JOBID>                                 # detailed job info
+tail -f logs/bond_m2_internal_gpu_<JOBID>.out    # live output
 ```
 
 ---
@@ -112,4 +110,4 @@ tail -f logs/bond_m2_prof_patched_gpu_<JOBID>.out   # live output
 | `CUDARuntimeError: cudaErrorNoDevice` | Node has no GPU; resubmit or check `-l gpus=1` |
 | CUDA/CuPy version mismatch at import | Match `cupy-cudaXXx` wheel to `module load cuda/XX.Y` |
 | `gpu_c` requirement not satisfied | A100 is cc 8.0; lower to `7.0` to allow V100 nodes too |
-| Job killed (out of time) | 4h limit is conservative for M=2; increase `h_rt` if needed |
+| Job killed (out of time) | Increase `h_rt` in the job script |

@@ -462,3 +462,157 @@ def _fermi_gw(e, beta: float):
     m = (x >= -500) & (x <= 500)
     out[m] = 1.0 / (np.exp(x[m]) + 1.0)
     return out
+
+
+# ═══════════════════════════════════════════════════════════
+# Corrected bond-scheme gateway functions
+# (professor's ghost_dmft_bond_new.py, March 2026)
+# ═══════════════════════════════════════════════════════════
+
+def gateway1_statics(beta: float, eta1, W1, eps1, V1, M1g: int, shift: float):
+    """Single-site gateway correlators (d + 1 h1-ghost + M1g g1-ghosts).
+
+    Orbital layout: 0=d, 1=h1, 2..2+M1g-1=g1_0..g1_{M1g-1}
+
+    Parameters
+    ----------
+    beta : float
+    eta1, W1 : float
+        Single h1-ghost energy and hybridization (M1h=1 fixed).
+    eps1, V1 : arrays, shape (M1g,)
+        g1-ghost energies and hybridizations.
+    M1g : int
+    shift : float
+        On-site d-orbital shift.
+
+    Returns
+    -------
+    nh1, dh1 : float
+    ng1, dg1 : arrays, shape (M1g,)
+    nd : float
+    """
+    eta1 = float(np.atleast_1d(eta1)[0])
+    W1   = float(np.atleast_1d(W1)[0])
+    eps1 = np.atleast_1d(np.asarray(eps1, dtype=float))
+    V1   = np.atleast_1d(np.asarray(V1,   dtype=float))
+    Norb = 2 + M1g   # d, h1, g1_0..g1_{M1g-1}
+    H = np.zeros((Norb, Norb))
+    H[0, 0] = shift
+    H[1, 1] = eta1;  H[0, 1] = H[1, 0] = W1
+    for l in range(M1g):
+        H[2 + l, 2 + l] = eps1[l]
+        H[0, 2 + l] = H[2 + l, 0] = V1[l]
+    ev, Uv = np.linalg.eigh(H)
+    f = _fermi_gw(ev, beta)
+    rho = (Uv * f) @ Uv.T
+    nh1 = float(rho[1, 1])
+    dh1 = float(rho[0, 1])
+    ng1 = np.array([float(rho[2 + l, 2 + l]) for l in range(M1g)])
+    dg1 = np.array([float(rho[0, 2 + l])     for l in range(M1g)])
+    nd  = float(rho[0, 0])
+    return nh1, dh1, ng1, dg1, nd
+
+
+def gateway2_statics(beta: float, eta2, W2, etab, Bh,
+                     eps2, V2, epsb, Bg, M2g: int, Mbg: int,
+                     t: float, shift: float):
+    """Two-site gateway correlators with CORRECT LOCAL/SHARED coupling.
+
+    Orbital layout (M2h=Mbh=1 fixed):
+      0=d1, 1=d2,
+      2=h2_site1 (LOCAL, d1 only),   3=h2_site2 (LOCAL, d2 only),
+      4=hb       (SHARED, both d1 and d2),
+      5..5+M2g-1         = g2_site1 (LOCAL, d1 only),
+      5+M2g..5+2*M2g-1   = g2_site2 (LOCAL, d2 only),
+      5+2*M2g..5+2*M2g+Mbg-1 = gb   (SHARED, both d1 and d2)
+
+    Parameters
+    ----------
+    beta : float
+    eta2, W2 : float   (M2h=1 fixed)
+    etab, Bh : float   (Mbh=1 fixed)
+    eps2, V2 : arrays, shape (M2g,)
+    epsb, Bg : arrays, shape (Mbg,)
+    M2g, Mbg : int
+    t : float          d1-d2 hopping
+    shift : float
+
+    Returns
+    -------
+    nh2, dh2 : float   (averaged over site1/site2)
+    nhb, dhb : float   (dhb = <d1†hb> + <d2†hb>)
+    ng2 : array (M2g,)
+    dg2 : array (M2g,)
+    ngb : array (Mbg,)
+    dgb : array (Mbg,)  (= <d1†gb_l> + <d2†gb_l>)
+    nd  : float         average d occupancy
+    """
+    eta2 = float(np.atleast_1d(eta2)[0])
+    W2   = float(np.atleast_1d(W2)[0])
+    etab = float(np.atleast_1d(etab)[0])
+    Bh   = float(np.atleast_1d(Bh)[0])
+    eps2 = np.atleast_1d(np.asarray(eps2, dtype=float))
+    V2   = np.atleast_1d(np.asarray(V2,   dtype=float))
+    epsb = np.atleast_1d(np.asarray(epsb, dtype=float))
+    Bg   = np.atleast_1d(np.asarray(Bg,   dtype=float))
+
+    M2h = 1; Mbh = 1   # fixed
+    Norb = 2 + 2*M2h + Mbh + 2*M2g + Mbg
+    H = np.zeros((Norb, Norb))
+
+    # d1, d2 on-site + hopping
+    H[0, 0] = shift;  H[1, 1] = shift
+    H[0, 1] = H[1, 0] = -t
+
+    # h2: LOCAL per site
+    for l in range(M2h):
+        i1 = 2 + l;  i2 = 2 + M2h + l
+        H[i1, i1] = eta2;  H[i2, i2] = eta2
+        H[0, i1] = H[i1, 0] = W2   # d1 – h2_site1
+        H[1, i2] = H[i2, 1] = W2   # d2 – h2_site2
+
+    # hb: SHARED bond orbital
+    for l in range(Mbh):
+        i = 2 + 2*M2h + l
+        H[i, i] = etab
+        H[0, i] = H[i, 0] = Bh   # d1 – hb
+        H[1, i] = H[i, 1] = Bh   # d2 – hb
+
+    # g2: LOCAL per site
+    off = 2 + 2*M2h + Mbh
+    for l in range(M2g):
+        i1 = off + l;  i2 = off + M2g + l
+        H[i1, i1] = eps2[l];  H[i2, i2] = eps2[l]
+        H[0, i1] = H[i1, 0] = V2[l]   # d1 – g2_site1
+        H[1, i2] = H[i2, 1] = V2[l]   # d2 – g2_site2
+
+    # gb: SHARED bond orbital
+    off2 = off + 2*M2g
+    for l in range(Mbg):
+        i = off2 + l
+        H[i, i] = epsb[l]
+        H[0, i] = H[i, 0] = Bg[l]   # d1 – gb
+        H[1, i] = H[i, 1] = Bg[l]   # d2 – gb
+
+    ev, Uv = np.linalg.eigh(H)
+    f = _fermi_gw(ev, beta)
+    rho = (Uv * f) @ Uv.T
+
+    # h2: average over site1 and site2
+    nh2 = float(np.mean([rho[2 + l, 2 + l] for l in range(M2h)]))
+    dh2 = float(np.mean([rho[0, 2 + l]     for l in range(M2h)]))
+    # hb: shared — dhb = <d1†hb> + <d2†hb>
+    nhb = float(np.mean([rho[2 + 2*M2h + l, 2 + 2*M2h + l] for l in range(Mbh)]))
+    dhb = float(np.mean([rho[0, 2 + 2*M2h + l] + rho[1, 2 + 2*M2h + l]
+                         for l in range(Mbh)]))
+    # g2: average over site1 and site2
+    ng2 = np.array([0.5*(rho[off + l, off + l] + rho[off + M2g + l, off + M2g + l])
+                    for l in range(M2g)])
+    dg2 = np.array([0.5*(rho[0, off + l] + rho[1, off + M2g + l])
+                    for l in range(M2g)])
+    # gb: shared — dgb = <d1†gb> + <d2†gb>
+    ngb = np.array([rho[off2 + l, off2 + l]            for l in range(Mbg)])
+    dgb = np.array([rho[0, off2 + l] + rho[1, off2 + l] for l in range(Mbg)])
+
+    nd = 0.5*(rho[0, 0] + rho[1, 1])
+    return nh2, dh2, nhb, dhb, ng2, dg2, ngb, dgb, nd

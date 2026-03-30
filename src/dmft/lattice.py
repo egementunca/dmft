@@ -239,88 +239,38 @@ def make_square_lattice(t: float, n_k: int = 30):
     ky = np.linspace(-np.pi, np.pi, n_k, endpoint=False)
     KX, KY = np.meshgrid(kx, ky)
     EPS = (-2 * t * (np.cos(KX) + np.cos(KY))).ravel()
-    GAM = (0.5 * (np.cos(KX) + np.cos(KY))).ravel()
+    GAM = EPS / 4.0            # gamma_k = eps_k/4 (corrected form factor)
     W = np.ones(n_k**2) / n_k**2
     D = 4 * t
     z = 4
     return EPS, GAM, W, D, z
 
 
-def lattice_statics(beta: float, eta, W_ghost, M: int, EPS, EPS_W, shift: float):
-    """BZ-summed static h-sector correlators on the square lattice.
+def lattice_statics(beta: float, eta1, W1, eta2, W2, etab, Bh,
+                    M1h: int, M2h: int, Mbh: int,
+                    EPS, GAM, EPS_W, shift: float):
+    """BZ-summed static correlators for all h-ghost families on the square lattice.
 
-    Hamiltonian per k-point: d + M h-ghosts (quadratic).
-    Correlators computed via the matrix Fermi function.
-
-    Parameters
-    ----------
-    beta : float
-        Inverse temperature.
-    eta : array, shape (M,)
-        h-ghost energies.
-    W_ghost : array, shape (M,)
-        h-ghost hybridizations.
-    M : int
-        Number of h-ghost poles.
-    EPS : array, shape (N_k,)
-        Lattice dispersion.
-    EPS_W : array, shape (N_k,)
-        BZ weights.
-    shift : float
-        On-site shift for d-orbital.
-
-    Returns
-    -------
-    nh : array, shape (M,)
-        ⟨h_l† h_l⟩ averaged over BZ.
-    dh : array, shape (M,)
-        ⟨d† h_l⟩ averaged over BZ.
-    """
-    N = len(EPS)
-    n = 1 + M
-    H = np.zeros((N, n, n))
-    H[:, 0, 0] = EPS + shift
-    for l in range(M):
-        H[:, 1 + l, 1 + l] = eta[l]
-        H[:, 0, 1 + l] = H[:, 1 + l, 0] = W_ghost[l]
-    ev, Uv = np.linalg.eigh(H)
-    f = _fermi_static(ev, beta)
-    nh = np.array([
-        float(np.dot(EPS_W, np.sum(Uv[:, 1 + l, :] * f * Uv[:, 1 + l, :], axis=1)))
-        for l in range(M)
-    ])
-    dh = np.array([
-        float(np.dot(EPS_W, np.sum(Uv[:, 0, :] * f * Uv[:, 1 + l, :], axis=1)))
-        for l in range(M)
-    ])
-    return nh, dh
-
-
-def bond_lattice_statics(beta: float, eta, W_ghost, etab, Bh, M: int,
-                          EPS, GAM, EPS_W, shift: float):
-    """BZ-summed static correlators for bond-extended lattice.
-
-    Hamiltonian per k-point: d + M site-local h-ghosts + M bond hb-ghosts.
-    The bond hb-ghosts couple to d via Bh * γ_k (k-dependent hybridization).
+    Hamiltonian per k-point: d + M1h h1-ghosts + M2h h2-ghosts + Mbh hb-ghosts.
+    The hb-ghosts couple via Bh[l]*gamma_k (k-dependent hybridization).
+    Correlators computed via the matrix Fermi function (vectorised over k).
 
     Parameters
     ----------
     beta : float
         Inverse temperature.
-    eta : array, shape (M,)
-        Site-local h-ghost energies.
-    W_ghost : array, shape (M,)
-        Site-local h-ghost hybridizations.
-    etab : array, shape (M,)
-        Bond hb-ghost energies.
-    Bh : array, shape (M,)
-        Bond hb-ghost hybridizations.
-    M : int
-        Number of ghost poles.
+    eta1, W1 : arrays, shape (M1h,)
+        Single-site h1-ghost energies and hybridizations.
+    eta2, W2 : arrays, shape (M2h,)
+        Two-site h2-ghost energies and hybridizations.
+    etab, Bh : arrays, shape (Mbh,)
+        Bond hb-ghost energies and hybridizations.
+    M1h, M2h, Mbh : int
+        Ghost pole counts (any can be 0).
     EPS : array, shape (N_k,)
         Lattice dispersion.
     GAM : array, shape (N_k,)
-        Bond form factor γ_k.
+        Bond form factor gamma_k = eps_k/4.
     EPS_W : array, shape (N_k,)
         BZ weights.
     shift : float
@@ -328,43 +278,65 @@ def bond_lattice_statics(beta: float, eta, W_ghost, etab, Bh, M: int,
 
     Returns
     -------
-    nh : array, shape (M,)
-        ⟨h_l† h_l⟩ (site-local h-ghosts).
-    dh : array, shape (M,)
-        ⟨d† h_l⟩ (site-local h-ghosts).
-    nhb : array, shape (M,)
-        ⟨hb_l† hb_l⟩ (bond hb-ghosts).
-    dhb : array, shape (M,)
-        ⟨d† hb_l⟩ weighted by γ_k (bond hb-ghosts).
+    nh1 : array, shape (M1h,)
+    dh1 : array, shape (M1h,)
+    nh2 : array, shape (M2h,)
+    dh2 : array, shape (M2h,)
+    nhb : array, shape (Mbh,)
+    dhb : array, shape (Mbh,)   — gamma_k-weighted: sum_k w_k * gamma_k * <d†hb>_k
+    nd_tot : float              — total d-orbital occupancy
     """
+    eta1 = np.atleast_1d(np.asarray(eta1, dtype=float))
+    W1   = np.atleast_1d(np.asarray(W1,   dtype=float))
+    eta2 = np.atleast_1d(np.asarray(eta2, dtype=float))
+    W2   = np.atleast_1d(np.asarray(W2,   dtype=float))
+    etab = np.atleast_1d(np.asarray(etab, dtype=float))
+    Bh   = np.atleast_1d(np.asarray(Bh,   dtype=float))
+
     N = len(EPS)
-    n = 1 + 2 * M
-    H = np.zeros((N, n, n))
+    Norb = 1 + M1h + M2h + Mbh
+    H = np.zeros((N, Norb, Norb))
     H[:, 0, 0] = EPS + shift
-    for l in range(M):
-        H[:, 1 + l, 1 + l] = eta[l]
-        H[:, 0, 1 + l] = H[:, 1 + l, 0] = W_ghost[l]
-        H[:, 1 + M + l, 1 + M + l] = etab[l]
-        H[:, 0, 1 + M + l] = H[:, 1 + M + l, 0] = Bh[l] * GAM
+    # h1-ghosts: uniform coupling
+    for l in range(M1h):
+        i = 1 + l
+        H[:, i, i] = eta1[l]
+        H[:, 0, i] = H[:, i, 0] = W1[l]
+    # h2-ghosts: uniform coupling
+    for l in range(M2h):
+        i = 1 + M1h + l
+        H[:, i, i] = eta2[l]
+        H[:, 0, i] = H[:, i, 0] = W2[l]
+    # hb-ghosts: k-dependent coupling via gamma_k
+    for l in range(Mbh):
+        i = 1 + M1h + M2h + l
+        H[:, i, i] = etab[l]
+        H[:, 0, i] = H[:, i, 0] = Bh[l] * GAM   # shape (N,)
+
     ev, Uv = np.linalg.eigh(H)
     f = _fermi_static(ev, beta)
-    nh = np.array([
-        float(np.dot(EPS_W, np.sum(Uv[:, 1 + l, :] * f * Uv[:, 1 + l, :], axis=1)))
-        for l in range(M)
-    ])
-    dh = np.array([
-        float(np.dot(EPS_W, np.sum(Uv[:, 0, :] * f * Uv[:, 1 + l, :], axis=1)))
-        for l in range(M)
-    ])
-    nhb = np.array([
-        float(np.dot(EPS_W, np.sum(Uv[:, 1 + M + l, :] * f * Uv[:, 1 + M + l, :], axis=1)))
-        for l in range(M)
-    ])
-    dhb = np.array([
-        float(np.dot(EPS_W, np.sum(Uv[:, 0, :] * f * Uv[:, 1 + M + l, :], axis=1) * GAM))
-        for l in range(M)
-    ])
-    return nh, dh, nhb, dhb
+
+    def _nh(i):
+        return float(np.dot(EPS_W, np.sum(Uv[:, i, :] * f * Uv[:, i, :], axis=1)))
+
+    def _dh(i):
+        return float(np.dot(EPS_W, np.sum(Uv[:, 0, :] * f * Uv[:, i, :], axis=1)))
+
+    def _dhb(i):
+        # gamma_k-weighted off-diagonal correlator
+        return float(np.dot(EPS_W, np.sum(Uv[:, 0, :] * f * Uv[:, i, :], axis=1) * GAM))
+
+    nh1 = np.array([_nh(1 + l) for l in range(M1h)])
+    dh1 = np.array([_dh(1 + l) for l in range(M1h)])
+    nh2 = np.array([_nh(1 + M1h + l) for l in range(M2h)])
+    dh2 = np.array([_dh(1 + M1h + l) for l in range(M2h)])
+    nhb = np.array([_nh(1 + M1h + M2h + l) for l in range(Mbh)])
+    dhb = np.array([_dhb(1 + M1h + M2h + l) for l in range(Mbh)])
+    nd_tot = float(np.dot(EPS_W, np.sum(Uv[:, 0, :] * f * Uv[:, 0, :], axis=1)))
+
+    return nh1, dh1, nh2, dh2, nhb, dhb, nd_tot
+
+
 
 
 def _fermi_static(e, beta: float):

@@ -1,21 +1,30 @@
 # Job Templates
 
-SLURM templates for BU SCC phase-scan runs.
+SGE templates for BU SCC runs.
 
-## Files
+## Bond Scheme (corrected, March 2026)
 
-- `phase_scan_m1_baseline.sh`
-  - fast baseline (`M=1`) for sketch compatibility checks
-- `phase_scan_m2_quality.sh`
-  - higher-quality run (`M=2`) with stricter validity
-
-## Usage
+See [RUN_BOND_INSTRUCTIONS.md](RUN_BOND_INSTRUCTIONS.md) for full details.
 
 ```bash
-cd $HOME/dmft
-mkdir -p logs
-sbatch jobs/phase_scan_m1_baseline.sh
-sbatch jobs/phase_scan_m2_quality.sh
+cd $HOME/dmft && mkdir -p logs
+
+# M=1: internal vs professor's new (comparison)
+qsub jobs/bond_m1_internal.sh
+qsub jobs/bond_m1_prof_new.sh
+
+# M=2: internal only
+qsub jobs/bond_m2_internal.sh        # CPU, 48 hrs
+qsub jobs/bond_m2_internal_gpu.sh    # GPU, 4 hrs (see GPU_CLUSTER_README.md)
 ```
+
+## Phase Scan
+
+```bash
+qsub jobs/phase_scan_m1_baseline.sh
+qsub jobs/phase_scan_m2_quality.sh
+```
+
+## Usage
 
 Before submitting, update partition/account/module lines for your SCC setup.
