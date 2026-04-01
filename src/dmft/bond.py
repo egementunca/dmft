@@ -323,14 +323,17 @@ def run_temperature_sweep(U=1.3, t=0.5, M1g=1, M2g=1, Mbg=1,
     -------
     results : list of dicts
     """
-    M1h = M2h = Mbh = 1   # fixed
+    # Auto-set M1h, M2h, Mbh to satisfy square system constraints
+    M1h = M1g   # M1h = M1g for square lattice
+    Mbh = 1     # fixed
+    M2h = M2g + Mbg - Mbh  # M2h + Mbh = M2g + Mbg for square lattice
 
     EPS, GAM, EPS_W, D, z = make_square_lattice(t, n_k=n_k)
 
     if T_vals is None:
         T_vals = np.linspace(Tmax, Tmin, nT)
 
-    # Check square system constraint
+    # Check square system constraint (should always pass now)
     assert M1h == M1g, f'Need M1h={M1g} (=M1g) for square system, got M1h={M1h}'
     assert M2h + Mbh == M2g + Mbg, \
         f'Need M2h+Mbh={M2g+Mbg} (=M2g+Mbg) for square system, got {M2h+Mbh}'

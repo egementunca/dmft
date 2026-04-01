@@ -1,0 +1,60 @@
+{
+  "system": {
+    "lattice": "square",
+    "z": 4,
+    "U": 1.3,
+    "t": 0.5,
+    "filling": 0.5,
+    "n_k": 30
+  },
+  "temperatures": {
+    "n_points": 30,
+    "T_min": 0.02,
+    "T_max": 0.5
+  },
+  "datasets": {
+    "bond_M1_U1.3_t0.5.dat": {
+      "M1g": 1,
+      "M2g": 1,
+      "Mbg": 1,
+      "M1h": 1,
+      "M2h": 1,
+      "Mbh": 1,
+      "method": "sector-blocked ED",
+      "runtime_minutes": 5,
+      "hardware": "CPU",
+      "validated_against": "professor_corrected_code",
+      "max_difference": 1.76e-5
+    },
+    "bond_M2_U1.3_t0.5.dat": {
+      "M1g": 2,
+      "M2g": 2,
+      "Mbg": 1,
+      "M1h": 2,
+      "M2h": 2,
+      "Mbh": 1,
+      "method": "sector-blocked ED + GPU",
+      "runtime_minutes": 47,
+      "hardware": "A40 GPU",
+      "validated_against": "M1_convergence",
+      "convergence_diff_low_T": 0.0
+    }
+  },
+  "corrections_applied": [
+    "Direct matching (not BPK combination)",
+    "Alternating loop with dmu bisection",
+    "Independent M per family",
+    "Corrected gamma_k = eps_k/4",
+    "Unified lattice statics"
+  ],
+  "columns": {
+    "0": "T (temperature)",
+    "1": "docc_ss (single-site reference)",
+    "2": "docc_bpk (bond scheme, BPK average)",
+    "3": "docc_1 (site 1)",
+    "4": "docc_2 (site 2)",
+    "5": "hop (<d1† d2>)"
+  },
+  "generated": "2026-04-01",
+  "code_version": "corrected_bond_scheme_v1"
+}
