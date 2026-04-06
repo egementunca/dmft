@@ -62,7 +62,12 @@ def _eigh(H):
         H_gpu = cp.asarray(H)
         ev_gpu, evec_gpu = cp.linalg.eigh(H_gpu)
         return cp.asnumpy(ev_gpu), cp.asnumpy(evec_gpu)
-    return eigh(H)
+    try:
+        return eigh(H)
+    except np.linalg.LinAlgError:
+        # dsyevd (divide-and-conquer) failed; fall back to dsyev (QR, more robust)
+        from scipy.linalg import eigh as scipy_eigh
+        return scipy_eigh(H, driver='ev')
 
 
 # ═══════════════════════════════════════════════════════════
