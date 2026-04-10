@@ -20,12 +20,11 @@ Self-consistency (per iteration):
 """
 
 import sys
-import time
 
 import numpy as np
 from scipy.optimize import least_squares
 
-from .bond_ed import impurity1_statics, _eigh, _fermi
+from .bond_ed import impurity1_statics
 from .dimer_ed import dimer_impurity_obs
 from .dimer_lattice import _fermi_lat
 
@@ -218,7 +217,7 @@ def solve_T(T, x0, Uval=1.3, z=4.0, M=1, nquad=200,
     mu = Uval / 2.0
     lsq = dict(method='trf', ftol=1e-12, xtol=1e-12, gtol=1e-12, max_nfev=5000)
     PENALTY = 1e4
-    b_V = 3.0; b_W = 3.0
+    b_V = 100.0; b_W = 100.0
 
     x = np.array(x0, dtype=float)
     eta  = x[0*M:1*M].copy(); W    = x[1*M:2*M].copy()
@@ -319,8 +318,8 @@ def solve_T(T, x0, Uval=1.3, z=4.0, M=1, nquad=200,
                 return res
 
             b_eta0 = 2.0
-            eta0_1_seed = np.clip(abs(eta1[1]) if M > 1 else 0.1, 0.05, 2.0)
-            eta0_2_seed = np.clip(abs(eta2[1]) if M > 1 else 0.1, 0.05, 2.0)
+            eta0_1_seed = np.clip(abs(eta1[1]) if M > 1 else 0.1, 0.05, b_eta0)
+            eta0_2_seed = np.clip(abs(eta2[1]) if M > 1 else 0.1, 0.05, b_eta0)
             p0 = np.array([eta0_1_seed, W1[0], W1[1],
                            eta0_2_seed, W2[0], W2[1], W[0], W[1]])
             blo = [0.05, -b_W, -b_W, 0.05, -b_W, -b_W, -b_W, -b_W]
