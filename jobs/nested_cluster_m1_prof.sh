@@ -2,7 +2,7 @@
 #$ -N nc_m1_prof
 #$ -o logs/nc_m1_prof_$JOB_ID.out
 #$ -e logs/nc_m1_prof_$JOB_ID.err
-#$ -l h_rt=12:00:00
+#$ -l h_rt=36:00:00
 #$ -pe omp 2
 #$ -l mem_per_core=2G
 #$ -P compcircuits

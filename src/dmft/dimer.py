@@ -11,6 +11,7 @@ Unified for half-filling (n_target=2.0) and arbitrary doping.
 
 import sys
 import time
+from math import comb as _comb
 
 import numpy as np
 from scipy.optimize import least_squares, brentq
@@ -221,7 +222,7 @@ def run_sweep(Uval=1.3, t_d=0.5, t_b=0.3, M=1, hop=False,
     print(f'\nDimer ghost-DMFT  M={M}  [{mode}]  {filling}'
           f'  U={Uval}  t_d={t_d}  t_b={t_b}  nk={nk}')
     print(f'Impurity: Norb={2+2*M}, sectors up to '
-          f'{max(1, int(np.math.comb(2+2*M, (2+2*M)//2))**2)} states')
+          f'{max(1, int(_comb(2+2*M, (2+2*M)//2))**2)} states')
 
     cols = ['T', 'D', 'mu', 'Sigma_inf', 'n_dimer_lat', 'n_dimer_imp',
             'eps_g[0]', 'V_g[0]', 'eta_h[0]', 'W_h[0]', 'iters', 'dp']

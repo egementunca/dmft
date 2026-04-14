@@ -2,7 +2,7 @@
 #$ -N bond_m2_internal_gpu
 #$ -o logs/bond_m2_internal_gpu_$JOB_ID.out
 #$ -e logs/bond_m2_internal_gpu_$JOB_ID.err
-#$ -l h_rt=04:00:00
+#$ -l h_rt=08:00:00
 #$ -pe omp 4
 #$ -l mem_per_core=4G
 #$ -l gpus=1
@@ -29,6 +29,7 @@ mkdir -p "$MPLCONFIGDIR" logs
 python3 -c "import cupy; cupy.cuda.Device(0).use(); print('CuPy OK:', cupy.__version__)"
 
 # Internal codebase with GPU-accelerated sector diag, M1g=2 M2g=2 Mbg=1
+# M1h, M2h, Mbh are set automatically to match square lattice constraints
 python3 scripts/run_bond_sweep.py \
   --M1g 2 --M2g 2 --Mbg 1 \
   --U 1.3 --t 0.5 \

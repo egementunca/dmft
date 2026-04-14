@@ -9,6 +9,10 @@ bond_*.dat
 ghost_dmft_*.dat
 !results/**/*.dat
 
+# Study results (keep in results/ only)
+study_*.npy
+!results/**/*.npy
+
 # Job scripts (keep only templates)
 jobs/bond_m1_prof_patched_gpu.sh
 jobs/bond_m1_highT.sh
@@ -16,6 +20,8 @@ jobs/bond_m2_highT_gpu.sh
 jobs/bond_m2_prof_new.sh
 jobs/bond_m2_prof_new_gpu.sh
 
-# Analysis scripts at root (moved to results/)
+# Analysis scripts and old code (keep in old_scripts/ or results/)
+/*.py
+!ghost_cluster_standalone.py
 analyze_results.py
 merge_temperature_ranges.py

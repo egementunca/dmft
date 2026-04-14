@@ -24,6 +24,7 @@ export MPLCONFIGDIR=/tmp/$USER/mplconfig
 mkdir -p "$MPLCONFIGDIR" logs
 
 # Internal codebase (src/dmft/bond.py), M1g=2 M2g=2 Mbg=1
+# M1h, M2h, Mbh are set automatically to match square lattice constraints
 python3 scripts/run_bond_sweep.py \
   --M1g 2 --M2g 2 --Mbg 1 \
   --U 1.3 --t 0.5 \

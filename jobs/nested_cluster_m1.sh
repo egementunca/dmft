@@ -29,4 +29,4 @@ python3 scripts/run_nested_cluster.py \
   --M 1 --U 1.3 --nquad 50 \
   --nT 100 --T_max 2.0 --T_min 0.05 \
   --mix 0.1 --maxiter 5000 --tol 1e-9 \
-  --verbose
+  --sweep --verbose
