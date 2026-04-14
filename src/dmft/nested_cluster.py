@@ -168,9 +168,12 @@ def nc_impurity1_obs(beta, mu, U, M, eps1, V1):
 def nc_impurity2_obs(beta, mu, U, M, eps2, V2, t_g, t=0.5):
     """Two-site impurity via sector-blocked ED (dimer_ed).
 
+    Note: professor's code uses hoppings = [(dA,dB,-t)], so t_b = -t.
+    The inter-site ghost hopping is also negated: [(gA,gB,-t_g)].
+
     Returns dict with docc, n_g2, d_g2, g2hop (arrays M, per-spin).
     """
-    imp = dimer_impurity_obs(beta, mu, U, t, M, eps2, V2, t_g, hop=True)
+    imp = dimer_impurity_obs(beta, mu, U, -t, M, eps2, V2, -t_g, hop=True)
     return dict(docc=imp['docc'], n_g2=imp['n_g'], d_g2=imp['d_g'],
                 g2hop=imp['ghop'])
 

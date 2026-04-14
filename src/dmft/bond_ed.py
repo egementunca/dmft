@@ -242,7 +242,7 @@ def impurity1_statics(beta, eps1, V1, M1g, U, dmu):
         H += V1[l] * (Cd[2*orb+0] @ C[0] + Cd[0] @ C[2*orb+0])
         H += V1[l] * (Cd[2*orb+1] @ C[1] + Cd[1] @ C[2*orb+1])
 
-    ev, evec = eigh(H)
+    ev, evec = _eigh(H)
     E0 = ev.min()
     with np.errstate(over='ignore', invalid='ignore'):
         w = np.exp(np.clip(-beta * (ev - E0), -700, 700))
