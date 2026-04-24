@@ -81,6 +81,11 @@ CuPy does not need to be installed for `--no-gpu` mode.
 | `bond_m1_prof_new.sh` | `ghost_dmft_bond_new.py` | 1 | No | 4h |
 | `bond_m2_internal.sh` | `scripts/run_bond_sweep.py` | 2 | No | 48h |
 | `bond_m2_internal_gpu.sh` | `scripts/run_bond_sweep.py` | 2 | Yes | 4h |
+| `nested_cluster_m1_gpu.sh` | `scripts/run_nested_cluster.py` | 1 | Yes | 4h |
+| `nested_cluster_m2_gpu.sh` | `scripts/run_nested_cluster.py` | 2 | Yes | 36h |
+
+The nested-cluster GPU jobs use the same CuPy / `_eigh` dispatch in `src/dmft/bond_ed.py`.
+Sectors below dim 256 fall back to NumPy automatically.
 
 ### Legacy (old buggy code, do not use for new runs)
 

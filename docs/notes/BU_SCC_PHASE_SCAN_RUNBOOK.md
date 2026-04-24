@@ -65,9 +65,9 @@ python3 scripts/run_phase_scan.py \
   --outprefix diagnostics/phase_scan/runs/scc_smoke
 ```
 
-## Batch Job Template (SLURM)
+## Batch Job Template (SGE)
 
-Ready-to-use templates now exist in the repo:
+BU SCC uses SGE (`qsub`), not SLURM. Ready-to-use templates exist in the repo:
 
 - `jobs/phase_scan_m1_baseline.sh`
 - `jobs/phase_scan_m2_quality.sh`
@@ -75,25 +75,29 @@ Ready-to-use templates now exist in the repo:
 Example structure (quality job):
 
 ```bash
-#!/bin/bash
-#SBATCH --job-name=dmft_m2_quality
-#SBATCH --output=logs/dmft_m2_quality_%j.out
-#SBATCH --error=logs/dmft_m2_quality_%j.err
-#SBATCH --time=24:00:00
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
+#!/bin/bash -l
+#$ -N dmft_m2_quality
+#$ -o logs/dmft_m2_quality_$JOB_ID.out
+#$ -e logs/dmft_m2_quality_$JOB_ID.err
+#$ -l h_rt=24:00:00
+#$ -pe omp 4
+#$ -l mem_per_core=4G
+#$ -P compcircuits
+#$ -j n
 
 set -euo pipefail
 
 cd $HOME/dmft
+module load python3/3.10.12
 source .venv/bin/activate
 export PYTHONPATH=src
 export MPLBACKEND=Agg
 export MPLCONFIGDIR=/tmp/$USER/mplconfig
+mkdir -p "$MPLCONFIGDIR" logs
 
-RUN_NAME=2026-03-13_quality_m2
+RUN_NAME=2026-03-20_m2_quality
 OUT=diagnostics/phase_scan/runs/$RUN_NAME
-mkdir -p "$OUT" logs
+mkdir -p "$OUT"
 
 python3 scripts/run_phase_scan.py \
   --u-min 2.0 --u-max 3.4 --nu 30 \
@@ -106,7 +110,7 @@ python3 scripts/run_phase_scan.py \
 Submit:
 
 ```bash
-sbatch jobs/phase_scan_m2_quality.sh
+qsub jobs/phase_scan_m2_quality.sh
 ```
 
 ## Monitoring and Collection
@@ -114,20 +118,21 @@ sbatch jobs/phase_scan_m2_quality.sh
 Monitor:
 
 ```bash
-squeue -u $USER
+qstat -u $USER                 # running/queued jobs
+qstat -j <JOBID>               # detailed job info
 ```
 
 Inspect logs:
 
 ```bash
-tail -n 100 logs/dmft_phase_m2_<jobid>.out
-tail -n 100 logs/dmft_phase_m2_<jobid>.err
+tail -n 100 logs/dmft_m2_quality_<JOBID>.out
+tail -n 100 logs/dmft_m2_quality_<JOBID>.err
 ```
 
 Pull results locally:
 
 ```bash
-rsync -avz <user>@<scc-host>:$HOME/dmft/diagnostics/phase_scan/runs/ ./diagnostics/phase_scan/runs/
+rsync -avz <user>@scc1.bu.edu:$HOME/dmft/diagnostics/phase_scan/runs/ ./diagnostics/phase_scan/runs/
 ```
 
 ## Quality-Tier Run Plan

@@ -1,7 +1,14 @@
 # GPU Feasibility Report: Ghost-DMFT Bond Scheme
 
+> **Status: Historical (March 2026 investigation).** The implementation has since
+> been refactored into `src/dmft/bond.py` + `src/dmft/bond_ed.py` with sector-blocked
+> ED and an automatic CuPy / `_eigh` GPU dispatch. The CPU-vs-GPU cost analysis
+> below remains accurate; the "Implementation Strategy" snippet targets the
+> retired `ghost_dmft_bond_opt-copy.py` and is preserved as a sketch only.
+> For current GPU usage, see [jobs/GPU_CLUSTER_README.md](../jobs/GPU_CLUSTER_README.md).
+
 **Date:** 2026-03-28
-**Code:** `ghost_dmft_bond_opt-copy.py`
+**Code (at time of writing):** `ghost_dmft_bond_opt-copy.py` (retired)
 **Target hardware:** NVIDIA A100 (SCC cluster)
 
 ---

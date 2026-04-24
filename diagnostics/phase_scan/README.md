@@ -9,10 +9,18 @@ ED adapter (`src/dmft/phase_scan.py`).
   - Initial compatibility preflight (`compat_mode=True`) using a small grid.
 - `runs/2026-03-19_preflight_require/`
   - Initial preflight with convergence gate enabled (`--require-converged`).
+- `runs/2026-03-20_m1_baseline/`
+  - M=1 dense-grid baseline scan.
+- `runs/2026-03-20_m2_quality/`
+  - M=2 dense-grid quality scan (initial).
+- `runs/2026-03-20_m2_quality_v2/`
+  - M=2 dense-grid quality scan (rerun, see `PHASE_SCAN_FULL_GRID_2026-03-20.md`).
 - `run_summary.csv`
   - One-row-per-run summary of counts and branch-separation metrics.
 - `PHASE_SCAN_INITIAL_CHECK_2026-03-19.md`
   - Initial validation: what worked, expected behaviors, and caveats.
+- `PHASE_SCAN_FULL_GRID_2026-03-20.md`
+  - Full-grid scan results and branch-boundary analysis.
 
 Each run directory has a consistent file set:
 

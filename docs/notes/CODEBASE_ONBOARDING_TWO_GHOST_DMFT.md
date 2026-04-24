@@ -1,5 +1,11 @@
 # CODEBASE_ONBOARDING_TWO_GHOST_DMFT
 
+> **Scope.** This note covers the **two-ghost (Variant A/B)** loops only. Newer
+> cluster schemes — **Bond** (`src/dmft/bond.py`), **Dimer** (`src/dmft/dimer.py`),
+> and **Nested Cluster** (`src/dmft/nested_cluster.py`) — are documented in
+> [`results/reports/CODE_DOCUMENTATION.md`](../../results/reports/CODE_DOCUMENTATION.md).
+> The conventions below (sign, pole forms, `D=2t=1`) apply across all schemes.
+
 ## 0) Locked Conventions (as implemented)
 - Bethe lattice: `D=1`, `t=0.5`.
 - Green's-function convention: `G^{-1}(iw)=iw+mu-h` (`mu` is not inside `h`).
