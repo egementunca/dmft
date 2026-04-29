@@ -404,11 +404,12 @@ def run_sweep(Uval=1.3, z=4.0, M=1, nquad=200, nk=20,
     print(f'{"T":>8}  {"docc":>10}  {"docc1":>10}  {"docc2":>10}  {"iters":>6}  {"dp":>10}')
     print('-' * 60)
 
-    results = []; xp = None; x2 = None
+    # Warm-start: use last solution directly (no linear extrapolation).
+    # 2*xp - x2 amplifies ~1e-7 lattice k-sum roundoff noise into wrong-basin
+    # attractors near multi-fixed-point regions (e.g. T~1.76 at U=1.3, M=1).
+    results = []; xp = None
     for T in Ts:
-        if   x2 is not None: xi = np.clip(2 * xp - x2, -5., 5.)
-        elif xp is not None: xi = xp.copy()
-        else:                xi = x0.copy()
+        xi = xp.copy() if xp is not None else x0.copy()
 
         r = solve_T(T, xi, Uval=Uval, z=z, M=M, nquad=nquad,
                     mix=mix, tol=tol, maxiter=maxiter, verbose=verbose)
@@ -416,6 +417,6 @@ def run_sweep(Uval=1.3, z=4.0, M=1, nquad=200, nk=20,
         print(f'{T:8.4f}  {r["docc"]:10.8f}  {r["docc1"]:10.6f}  '
               f'{r["docc2"]:10.6f}  {r["iters"]:6d}  {r["dp"]:10.2e}')
         sys.stdout.flush()
-        results.append(r); x2 = xp; xp = r['x'].copy()
+        results.append(r); xp = r['x'].copy()
 
     return results
