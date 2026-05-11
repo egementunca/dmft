@@ -172,7 +172,55 @@ Optional keys used by Variant B diagnostics / matching:
 
 The bond / dimer / nested-cluster schemes use **statics-only ED** (no Lehmann Green's function) — see `bond_ed.py` (`impurity1_statics`, `impurity2_statics`) and `dimer_ed.py` (`dimer_impurity_obs`). These return equal-time correlators directly from the Boltzmann-weighted sector spectra and never build the full Fock-space matrix.
 
-## 5) Running the Project
+## 5) Observable Interpretation: Physical Meaning → Code Variable
+
+### Double occupancy (`docc`)
+
+`docc` = ⟨n↑n↓⟩ — the probability that **both** spin-up and spin-down electrons
+simultaneously occupy the same site. It is the primary measure of correlation strength.
+
+| value | meaning |
+|-------|---------|
+| 0.25 | Non-interacting limit (U=0): spins uncorrelated, ⟨n↑⟩⟨n↓⟩ = ½×½ |
+| ~0.21 | Correlated metal at U≈1.3: Coulomb repulsion partially suppresses double occ. |
+| → 0 | Mott insulator: strong U essentially forbids two electrons on one site |
+| 0.2496 | "Trivial attractor": bath couplings W→0, impurity sees effectively U=0 |
+
+### Nested cluster output columns (`T  docc_bpk  docc1  docc2  iters  dp`)
+
+| column | code | physical meaning |
+|--------|------|-----------------|
+| `docc_bpk` | `(1-z)*imp1['docc'] + z*imp2['docc']` | **Lattice** ⟨n↑n↓⟩ via BPK combination — the physically meaningful result, consistent with `docc_bpk` in the bond scheme output |
+| `docc1` | `imp1['docc']` | ⟨n↑n↓⟩ on the **single-site impurity** (Impurity 1) |
+| `docc2` | `imp2['docc']` | ⟨n↑n↓⟩ on the **two-site cluster** (Impurity 2, site A) |
+| `dp` | `‖x_new − x_old‖` | Parameter-vector change before mixing — convergence monitor |
+
+At self-consistency `docc1 ≈ docc2`, so `docc_bpk ≈ docc1 ≈ docc2` (BPK coefficients
+sum to 1 for z=4: −3 + 4 = 1). Large `docc1 − docc2` indicates the iteration has
+not converged or is oscillating between fixed points.
+
+**Collapse diagnostic:** `docc1 ≈ 0.2496` means Impurity 1 fell into the trivial
+fixed point (W→0, non-interacting). `docc2` may remain physical.
+
+### Bond scheme output columns (`T  docc_ss  docc_bpk  docc_1  docc_2  hop`)
+
+| column | code | physical meaning |
+|--------|------|-----------------|
+| `docc_ss` | `ss['docc']` | ⟨n↑n↓⟩ from single-site warm-start solve (before coupled loop) |
+| `docc_bpk` | `(1-z)*docc1 + z*docc2` | **Lattice** ⟨n↑n↓⟩ — the main physical output |
+| `docc_1` | `docc1` from `impurity1_statics` | ⟨n↑n↓⟩ on site 1 of the bond |
+| `docc_2` | `docc2` from `impurity2_statics` | ⟨n↑n↓⟩ on site 2 of the bond |
+| `hop` | `⟨d₁†d₂⟩` | Equal-time inter-site hopping correlator |
+
+### Other observables
+
+| name | meaning | healthy range |
+|------|---------|---------------|
+| `nd_total` / `nd` | average occupancy per spin ⟨n⟩ | 0.5 ± 0.05 at half-filling |
+| `dp` | ‖Δx‖ before mixing, used as convergence criterion | < tol (1e-9) at convergence |
+| `iters` | number of iterations taken | < maxiter; hitting maxiter means no convergence |
+
+## 6) Running the Project
 
 ### Install (editable + dev)
 

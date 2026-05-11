@@ -32,9 +32,9 @@ from .bond_ed import impurity1_statics, impurity2_statics
 # Single-site solver
 # ═══════════════════════════════════════════════════════════
 
-def solve_singlesite(beta, M1g, U, t, EPS, GAM, EPS_W,
+def solve_singlesite(beta, M1g=None, U=None, t=None, EPS=None, GAM=None, EPS_W=None,
                      eta0=None, W0=None, eps0=None, V0=None,
-                     mix=0.5, tol=1e-8, maxiter=200):
+                     mix=0.5, tol=1e-8, maxiter=200, **legacy_kwargs):
     """Sequential single-site self-consistency.
 
     Alternates:
@@ -62,12 +62,34 @@ def solve_singlesite(beta, M1g, U, t, EPS, GAM, EPS_W,
     -------
     dict with keys: eta, W, eps, V, docc, iters.
     """
+    # Legacy compatibility: solve_singlesite(..., M=..., mu=..., shift=..., EPS=..., EPS_W=...)
+    if M1g is None and 'M' in legacy_kwargs:
+        M1g = int(legacy_kwargs.pop('M'))
+    elif 'M' in legacy_kwargs:
+        M_legacy = int(legacy_kwargs.pop('M'))
+        if int(M1g) != M_legacy:
+            raise ValueError(f'Conflicting M1g={M1g} and M={M_legacy}')
+
+    # Legacy mu is not used in the corrected bond_new-style single-site loop.
+    legacy_kwargs.pop('mu', None)
+    shift = float(legacy_kwargs.pop('shift', 0.0))
+
+    if legacy_kwargs:
+        bad = ', '.join(sorted(legacy_kwargs.keys()))
+        raise TypeError(f'Unsupported keyword(s) for solve_singlesite: {bad}')
+
+    if M1g is None or U is None or t is None or EPS is None or EPS_W is None:
+        raise TypeError('solve_singlesite requires M1g/U/t/EPS/EPS_W (or legacy M/U/t/EPS/EPS_W)')
+    M1g = int(M1g)
+
+    if GAM is None:
+        GAM = np.zeros_like(np.asarray(EPS, dtype=float))
+
     eta = 0.0 if eta0 is None else float(np.atleast_1d(eta0)[0])
     W = 0.3 if W0 is None else float(np.atleast_1d(W0)[0])
     eps = np.zeros(M1g) if eps0 is None else np.asarray(eps0, float).copy()
     V = 0.4 * np.ones(M1g) if V0 is None else np.asarray(V0, float).copy()
 
-    shift = 0.0
     docc = 0.0
 
     for it in range(maxiter):
@@ -123,9 +145,9 @@ def solve_singlesite(beta, M1g, U, t, EPS, GAM, EPS_W,
 # Bond solver — alternating loop with direct matching
 # ═══════════════════════════════════════════════════════════
 
-def solve_bond(beta, M1g, M2g, Mbg, M1h, M2h, Mbh, U, t,
-               EPS, GAM, EPS_W, z=4,
-               p0=None, mix=0.5, tol=1e-7, maxiter=50, verbose=True):
+def solve_bond(beta, M1g=None, M2g=None, Mbg=None, M1h=None, M2h=None, Mbh=None, U=None, t=None,
+               EPS=None, GAM=None, EPS_W=None, z=4,
+               p0=None, mix=0.5, tol=1e-7, maxiter=50, verbose=False, **legacy_kwargs):
     """Alternating outer loop: fix impurity → solve gateway → re-solve impurity.
 
     Direct matching conditions (NOT BPK combination):
@@ -160,8 +182,54 @@ def solve_bond(beta, M1g, M2g, Mbg, M1h, M2h, Mbh, U, t,
     -------
     dict with converged parameters and observables.
     """
-    n1h = M1h; n2h = M2h; nbh = Mbh
-    n1g = M1g; n2g = M2g; nbg = Mbg
+    # Legacy compatibility: solve_bond(beta=..., ss=..., M=..., mu=..., shift=..., ...)
+    legacy_mode = ('ss' in legacy_kwargs) or ('M' in legacy_kwargs)
+    if legacy_mode:
+        ss = legacy_kwargs.pop('ss', None)
+        M = legacy_kwargs.pop('M', None)
+        if M is None:
+            M = M1g if M1g is not None else 1
+        M = int(M)
+
+        # Legacy mu/shift are accepted but not used in this corrected formulation.
+        legacy_kwargs.pop('mu', None)
+        legacy_kwargs.pop('shift', None)
+
+        if legacy_kwargs:
+            bad = ', '.join(sorted(legacy_kwargs.keys()))
+            raise TypeError(f'Unsupported keyword(s) for solve_bond: {bad}')
+
+        M1g = M2g = Mbg = M
+        M1h = M2h = Mbh = M
+
+        # Match legacy defaults when caller did not override them.
+        if mix == 0.5:
+            mix = 0.3
+        if tol == 1e-7:
+            tol = 1e-9
+
+        if p0 is None and ss is not None:
+            eta = np.atleast_1d(np.asarray(ss.get('eta', np.zeros(M)), dtype=float))[:M]
+            W = np.atleast_1d(np.asarray(ss.get('W', np.full(M, 0.3)), dtype=float))[:M]
+            eps = np.atleast_1d(np.asarray(ss.get('eps', np.zeros(M)), dtype=float))[:M]
+            V = np.atleast_1d(np.asarray(ss.get('V', np.full(M, 0.4)), dtype=float))[:M]
+            etab = np.atleast_1d(np.asarray(ss.get('etab', np.zeros(M)), dtype=float))[:M]
+            Bh = np.atleast_1d(np.asarray(ss.get('Bh', np.zeros(M)), dtype=float))[:M]
+            epsb = np.atleast_1d(np.asarray(ss.get('epsb', np.zeros(M)), dtype=float))[:M]
+            Bg = np.atleast_1d(np.asarray(ss.get('Bg', np.zeros(M)), dtype=float))[:M]
+            p0 = np.concatenate([
+                eta, W, eta.copy(), W.copy(), etab, Bh, eps, V, eps.copy(), V.copy(), epsb, Bg
+            ])
+    else:
+        if legacy_kwargs:
+            bad = ', '.join(sorted(legacy_kwargs.keys()))
+            raise TypeError(f'Unsupported keyword(s) for solve_bond: {bad}')
+
+    if any(v is None for v in (M1g, M2g, Mbg, M1h, M2h, Mbh, U, t, EPS, GAM, EPS_W)):
+        raise TypeError('solve_bond requires M1g/M2g/Mbg/M1h/M2h/Mbh/U/t/EPS/GAM/EPS_W (or legacy ss/M form)')
+
+    n1h = int(M1h); n2h = int(M2h); nbh = int(Mbh)
+    n1g = int(M1g); n2g = int(M2g); nbg = int(Mbg)
     Np = 2 * (n1h + n2h + nbh + n1g + n2g + nbg)
 
     def unpack(p):
@@ -282,11 +350,25 @@ def solve_bond(beta, M1g, M2g, Mbg, M1h, M2h, Mbh, U, t,
                 print(f'  Converged at it={it}')
             break
 
-    return dict(
+    out = dict(
         p=p, eta1=eta1, W1=W1, eta2=eta2, W2=W2, etab=etab, Bh=Bh,
         eps1=eps1, V1=V1, eps2=eps2, V2=V2, epsb=epsb, Bg=Bg,
         docc1=docc1, docc2=docc2, docc_bpk=docc_bpk,
         hop=hop, nd_total=nd_total, iters=it, dp=dp, rnorm=rnorm)
+    # Legacy key aliases expected by older scripts/tests.
+    n_constraints = 2 * (n1h + n2h + nbh + n1g + n2g + nbg) + 1
+    legacy_res = out['rnorm'] / max(n_constraints, 1) if legacy_mode else out['rnorm']
+    out.update({
+        'eta': out['eta1'].copy(),
+        'W': out['W1'].copy(),
+        'eps': out['eps1'].copy(),
+        'V': out['V1'].copy(),
+        'docc_1': out['docc1'],
+        'docc_2': out['docc2'],
+        'res': legacy_res,
+        'dmu': 0.0,
+    })
+    return out
 
 
 # ═══════════════════════════════════════════════════════════
@@ -298,7 +380,7 @@ def run_temperature_sweep(U=1.3, t=0.5, M1g=1, M2g=1, Mbg=1,
                           mix_ss=0.5, mix_bond=0.5,
                           tol_ss=1e-8, tol_bond=1e-7,
                           maxiter_ss=200, maxiter_bond=100,
-                          verbose=False, tag=''):
+                          verbose=False, tag='', mode='both', M=None):
     """Run bond-scheme DMFT over a range of temperatures.
 
     M1h = M2h = Mbh = 1 fixed. Only M1g, M2g, Mbg are free.
@@ -323,6 +405,17 @@ def run_temperature_sweep(U=1.3, t=0.5, M1g=1, M2g=1, Mbg=1,
     -------
     results : list of dicts
     """
+    # Legacy compatibility: single M for all g-families.
+    if M is not None:
+        M = int(M)
+        M1g = M
+        M2g = M
+        Mbg = M
+
+    mode = str(mode).lower()
+    if mode not in {'ss', 'bond', 'both'}:
+        raise ValueError("mode must be one of {'ss', 'bond', 'both'}")
+
     # Auto-set M1h, M2h, Mbh to satisfy square system constraints
     M1h = M1g   # M1h = M1g for square lattice
     Mbh = 1     # fixed
@@ -339,10 +432,14 @@ def run_temperature_sweep(U=1.3, t=0.5, M1g=1, M2g=1, Mbg=1,
         f'Need M2h+Mbh={M2g+Mbg} (=M2g+Mbg) for square system, got {M2h+Mbh}'
 
     print(f'\nGhost-DMFT bond  M1g={M1g} M2g={M2g} Mbg={Mbg}  '
-          f'M1h={M1h} M2h={M2h} Mbh={Mbh}  U={U}  t={t}  z={z}')
-    print(f'{"T":>6}  {"docc_ss":>9}  {"docc_bpk":>10}  '
-          f'{"docc1":>8}  {"docc2":>8}  {"hop":>8}  {"nd":>7}  {"its":>4}')
-    print('-' * 85)
+          f'M1h={M1h} M2h={M2h} Mbh={Mbh}  U={U}  t={t}  z={z}  mode={mode}')
+    if mode in {'bond', 'both'}:
+        print(f'{"T":>6}  {"docc_ss":>9}  {"docc_bpk":>10}  '
+              f'{"docc1":>8}  {"docc2":>8}  {"hop":>8}  {"nd":>7}  {"its":>4}')
+        print('-' * 85)
+    else:
+        print(f'{"T":>6}  {"docc_ss":>9}')
+        print('-' * 22)
 
     p0 = None   # warm-start parameter vector
     results = []
@@ -375,32 +472,36 @@ def run_temperature_sweep(U=1.3, t=0.5, M1g=1, M2g=1, Mbg=1,
             p0[i:i+M2g] = ss['V'][0] * np.ones(M2g); i += M2g  # V2
             # epsb=0, Bg=0 initially
 
-        rb = solve_bond(
-            beta, M1g, M2g, Mbg, M1h, M2h, Mbh, U, t,
-            EPS, GAM, EPS_W, z=z,
-            p0=p0, mix=mix_bond, tol=tol_bond,
-            maxiter=maxiter_bond, verbose=verbose)
-
         dt = time.time() - t0
-        d1 = rb['docc1']; d2 = rb['docc2']; dbpk = rb['docc_bpk']
-        nd = rb['nd_total']; hp = rb['hop']
-        physical = d1 > 0 and d2 > 0 and dbpk > 0 and abs(nd - 0.5) < 0.05
+        if mode in {'bond', 'both'}:
+            rb = solve_bond(
+                beta, M1g, M2g, Mbg, M1h, M2h, Mbh, U, t,
+                EPS, GAM, EPS_W, z=z,
+                p0=p0, mix=mix_bond, tol=tol_bond,
+                maxiter=maxiter_bond, verbose=verbose)
 
-        if physical:
-            print(f'  {T:6.4f}  {ss["docc"]:9.6f}  {dbpk:10.6f}  '
-                  f'{d1:8.6f}  {d2:8.6f}  {hp:8.5f}  {nd:7.4f}  '
-                  f'{rb["iters"]:4d}  ({dt:.1f}s)')
-            p0 = rb['p']  # warm start next T
+            d1 = rb['docc1']; d2 = rb['docc2']; dbpk = rb['docc_bpk']
+            nd = rb['nd_total']; hp = rb['hop']
+            physical = d1 > 0 and d2 > 0 and dbpk > 0 and abs(nd - 0.5) < 0.05
+
+            if physical:
+                print(f'  {T:6.4f}  {ss["docc"]:9.6f}  {dbpk:10.6f}  '
+                      f'{d1:8.6f}  {d2:8.6f}  {hp:8.5f}  {nd:7.4f}  '
+                      f'{rb["iters"]:4d}  ({dt:.1f}s)')
+                p0 = rb['p']  # warm start next T
+            else:
+                print(f'  {T:6.4f}  {ss["docc"]:9.6f}  [unphysical]'
+                      f'  iters={rb["iters"]}  |r|={rb["rnorm"]:.2e}  ({dt:.1f}s)')
+
+            results.append(dict(
+                T=T, ToverD=T / D, beta=beta,
+                docc_ss=ss['docc'], docc_bpk=dbpk,
+                docc_1=d1, docc_2=d2, hop=hp,
+                nd_total=nd, res=rb['rnorm'], iters_bond=rb['iters']))
         else:
-            print(f'  {T:6.4f}  {ss["docc"]:9.6f}  [unphysical]'
-                  f'  iters={rb["iters"]}  |r|={rb["rnorm"]:.2e}  ({dt:.1f}s)')
+            print(f'  {T:6.4f}  {ss["docc"]:9.6f}  ({dt:.1f}s)')
+            results.append(dict(T=T, ToverD=T / D, beta=beta, docc_ss=ss['docc']))
         sys.stdout.flush()
-
-        results.append(dict(
-            T=T, ToverD=T / D, beta=beta,
-            docc_ss=ss['docc'], docc_bpk=dbpk,
-            docc_1=d1, docc_2=d2, hop=hp,
-            nd_total=nd, res=rb['rnorm'], iters_bond=rb['iters']))
 
         # Save after every T
         fname = f'bond_M1g{M1g}M2g{M2g}Mbg{Mbg}_U{U}'

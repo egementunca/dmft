@@ -246,9 +246,9 @@ def make_square_lattice(t: float, n_k: int = 30):
     return EPS, GAM, W, D, z
 
 
-def lattice_statics(beta: float, eta1, W1, eta2, W2, etab, Bh,
-                    M1h: int, M2h: int, Mbh: int,
-                    EPS, GAM, EPS_W, shift: float):
+def _lattice_statics_general(beta: float, eta1, W1, eta2, W2, etab, Bh,
+                             M1h: int, M2h: int, Mbh: int,
+                             EPS, GAM, EPS_W, shift: float):
     """BZ-summed static correlators for all h-ghost families on the square lattice.
 
     Hamiltonian per k-point: d + M1h h1-ghosts + M2h h2-ghosts + Mbh hb-ghosts.
@@ -335,6 +335,85 @@ def lattice_statics(beta: float, eta1, W1, eta2, W2, etab, Bh,
     nd_tot = float(np.dot(EPS_W, np.sum(Uv[:, 0, :] * f * Uv[:, 0, :], axis=1)))
 
     return nh1, dh1, nh2, dh2, nhb, dhb, nd_tot
+
+
+def lattice_statics(*args, **kwargs):
+    """Backward-compatible lattice statics dispatcher.
+
+    Supported call shapes:
+    1) New/general API (returns 7 values):
+       lattice_statics(beta, eta1, W1, eta2, W2, etab, Bh,
+                       M1h, M2h, Mbh, EPS, GAM, EPS_W, shift)
+    2) Legacy single-site API (returns 2 values):
+       lattice_statics(beta, eta, W, M, EPS, EPS_W, shift)
+       lattice_statics(beta=..., eta=..., W_ghost=..., M=..., EPS=..., EPS_W=..., shift=...)
+    """
+    # Legacy keyword API used by historical scripts/tests.
+    if 'M' in kwargs and ('eta' in kwargs or 'W_ghost' in kwargs or 'W' in kwargs):
+        beta = kwargs['beta']
+        eta = kwargs.get('eta')
+        W = kwargs.get('W_ghost', kwargs.get('W'))
+        M = int(kwargs['M'])
+        EPS = kwargs['EPS']
+        EPS_W = kwargs['EPS_W']
+        shift = kwargs['shift']
+        GAM = np.zeros_like(np.asarray(EPS, dtype=float))
+        nh, dh, _, _, _, _, _ = _lattice_statics_general(
+            beta, eta, W, [], [], [], [],
+            M, 0, 0, EPS, GAM, EPS_W, shift
+        )
+        return nh, dh
+
+    # Legacy positional API: (beta, eta, W, M, EPS, EPS_W, shift)
+    if len(args) == 7 and not kwargs:
+        beta, eta, W, M, EPS, EPS_W, shift = args
+        M = int(M)
+        GAM = np.zeros_like(np.asarray(EPS, dtype=float))
+        nh, dh, _, _, _, _, _ = _lattice_statics_general(
+            beta, eta, W, [], [], [], [],
+            M, 0, 0, EPS, GAM, EPS_W, shift
+        )
+        return nh, dh
+
+    # New API (positional or keyword).
+    if kwargs:
+        beta = kwargs['beta']
+        eta1 = kwargs['eta1']
+        W1 = kwargs['W1']
+        eta2 = kwargs['eta2']
+        W2 = kwargs['W2']
+        etab = kwargs['etab']
+        Bh = kwargs['Bh']
+        M1h = kwargs['M1h']
+        M2h = kwargs['M2h']
+        Mbh = kwargs['Mbh']
+        EPS = kwargs['EPS']
+        GAM = kwargs['GAM']
+        EPS_W = kwargs['EPS_W']
+        shift = kwargs['shift']
+        return _lattice_statics_general(
+            beta, eta1, W1, eta2, W2, etab, Bh,
+            M1h, M2h, Mbh, EPS, GAM, EPS_W, shift
+        )
+
+    if len(args) == 14:
+        return _lattice_statics_general(*args)
+
+    raise TypeError('Unsupported lattice_statics call signature')
+
+
+def bond_lattice_statics(beta, eta, W_ghost, etab, Bh, M, EPS, GAM, EPS_W, shift):
+    """Legacy bond-lattice helper used by historical scripts/tests.
+
+    Returns
+    -------
+    nh, dh, nhb, dhb : arrays of shape (M,)
+    """
+    nh, dh, _, _, nhb, dhb, _ = _lattice_statics_general(
+        beta, eta, W_ghost, [], [], etab, Bh,
+        int(M), 0, int(M), EPS, GAM, EPS_W, shift
+    )
+    return nh, dh, nhb, dhb
 
 
 

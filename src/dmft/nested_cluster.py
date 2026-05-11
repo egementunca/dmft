@@ -370,8 +370,11 @@ def solve_T(T, x0, Uval=1.3, z=4.0, M=1, nquad=200,
         if dp < tol:
             break
 
+    docc1_val = imp1['docc']
+    docc2_val = imp2['docc']
+    docc_bpk = (1 - z) * docc1_val + z * docc2_val
     return dict(T=T, iters=it, dp=dp, docc=docc,
-                docc1=imp1['docc'], docc2=imp2['docc'],
+                docc1=docc1_val, docc2=docc2_val, docc_bpk=docc_bpk,
                 x=np.concatenate([eta, W, eta2, W2, t_h, eta1, W1, t_g]))
 
 
@@ -407,7 +410,7 @@ def run_sweep(Uval=1.3, z=4.0, M=1, nquad=200, nk=20,
         x0[7*M:8*M] = 0.05  # t_g
 
     print(f'\nGhost Nested Cluster (internal)  M={M}  U={Uval}  z={z}  nk={nquad}')
-    print(f'{"T":>8}  {"docc":>10}  {"docc1":>10}  {"docc2":>10}  {"iters":>6}  {"dp":>10}')
+    print(f'{"T":>8}  {"docc_bpk":>10}  {"docc1":>10}  {"docc2":>10}  {"iters":>6}  {"dp":>10}')
     print('-' * 60)
 
     # Warm-start: use last solution directly (no linear extrapolation).
@@ -420,7 +423,7 @@ def run_sweep(Uval=1.3, z=4.0, M=1, nquad=200, nk=20,
         r = solve_T(T, xi, Uval=Uval, z=z, M=M, nquad=nquad,
                     mix=mix, tol=tol, maxiter=maxiter, verbose=verbose)
 
-        print(f'{T:8.4f}  {r["docc"]:10.8f}  {r["docc1"]:10.6f}  '
+        print(f'{T:8.4f}  {r["docc_bpk"]:10.8f}  {r["docc1"]:10.6f}  '
               f'{r["docc2"]:10.6f}  {r["iters"]:6d}  {r["dp"]:10.2e}')
         sys.stdout.flush()
         results.append(r); xp = r['x'].copy()

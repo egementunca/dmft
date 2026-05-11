@@ -246,6 +246,7 @@ def _match_h_general(target, mu, eps_d, sigma_inf, W, eta, M_g, beta, eps0, V0,
 
     result = least_squares(
         residual, x0, method='trf', max_nfev=5000,
+        ftol=1e-13, xtol=1e-13, gtol=1e-13,
         bounds=(lb, ub),
     )
     return result.x[M_g:], result.x[:M_g]  # V, eps
@@ -311,6 +312,7 @@ def _match_h_symmetric(target, mu, eps_d, sigma_inf, W, eta, M_g, beta,
 
     result = least_squares(
         residual, x0, method='trf', max_nfev=5000,
+        ftol=1e-13, xtol=1e-13, gtol=1e-13,
         bounds=(lb, ub),
     )
     eps_full, V_full = _unpack(result.x)
@@ -424,6 +426,7 @@ def _match_g_general(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
 
     result = least_squares(
         residual, x0, method='trf', max_nfev=5000,
+        ftol=1e-13, xtol=1e-13, gtol=1e-13,
         bounds=(lb, ub),
     )
     return result.x[M_h:], result.x[:M_h]  # W, eta
@@ -488,6 +491,7 @@ def _match_g_symmetric(target, mu, eps_d, sigma_inf, V, eps, M_h, beta,
 
     result = least_squares(
         residual, x0, method='trf', max_nfev=5000,
+        ftol=1e-13, xtol=1e-13, gtol=1e-13,
         bounds=(lb, ub),
     )
     eta_full, W_full = _unpack(result.x)
