@@ -236,9 +236,15 @@ def solve_T(T, x0, Uval=1.3, z=4.0, M=1, nquad=200,
     # Plateau detector: tracks dp over a window to catch noise-floor stall.
     # With finite nquad the k-sum has ~O(1/nquad^2) roundoff; dp can't drop
     # below that floor no matter how many iterations we run.
+    # IMPORTANT: only fire if dp < _DP_PLATEAU_MAX. Below T~1.8 the system can
+    # converge through a transient plateau (critical slowing down) to dp~1e-9;
+    # firing there gives a bad warm-start that causes basin collapse at the next T.
+    # Measured noise floor on GPU/nquad=50: ~1.35e-4 at T=2, ~1.78e-4 at T=1.86.
+    # Critical-slowing plateaus start at dp~2e-4 (T=1.79) and higher.
     _dp_window = []
-    _PLATEAU_WIN = 20   # iterations to look back
+    _PLATEAU_WIN = 20    # iterations to look back
     _PLATEAU_REL = 0.02  # stop if dp changed <2% over the window
+    _DP_PLATEAU_MAX = 2e-4  # only plateau-exit when already near noise floor
 
     for it in range(1, maxiter + 1):
 
@@ -368,7 +374,8 @@ def solve_T(T, x0, Uval=1.3, z=4.0, M=1, nquad=200,
         _dp_window.append(dp)
         if len(_dp_window) > _PLATEAU_WIN:
             _dp_window.pop(0)
-            if (max(_dp_window) - min(_dp_window)) / max(_dp_window) < _PLATEAU_REL:
+            if ((max(_dp_window) - min(_dp_window)) / max(_dp_window) < _PLATEAU_REL
+                    and dp < _DP_PLATEAU_MAX):
                 break
 
         W    = mix * W_new    + (1 - mix) * W
@@ -424,8 +431,8 @@ def run_sweep(Uval=1.3, z=4.0, M=1, nquad=200, nk=20,
         x0[7*M:8*M] = 0.05  # t_g
 
     print(f'\nGhost Nested Cluster (internal)  M={M}  U={Uval}  z={z}  nk={nquad}')
-    print(f'{"T":>8}  {"docc_bpk":>10}  {"docc1":>10}  {"docc2":>10}  {"iters":>6}  {"dp":>10}')
-    print('-' * 60)
+    print(f'{"T":>8}  {"docc2":>10}  {"docc1":>10}  {"iters":>6}  {"dp":>10}')
+    print('-' * 50)
 
     # Warm-start: use last solution directly (no linear extrapolation).
     # 2*xp - x2 amplifies ~1e-7 lattice k-sum roundoff noise into wrong-basin
@@ -437,9 +444,12 @@ def run_sweep(Uval=1.3, z=4.0, M=1, nquad=200, nk=20,
         r = solve_T(T, xi, Uval=Uval, z=z, M=M, nquad=nquad,
                     mix=mix, tol=tol, maxiter=maxiter, verbose=verbose)
 
-        print(f'{T:8.4f}  {r["docc_bpk"]:10.8f}  {r["docc1"]:10.6f}  '
-              f'{r["docc2"]:10.6f}  {r["iters"]:6d}  {r["dp"]:10.2e}')
+        print(f'{T:8.4f}  {r["docc2"]:10.6f}  {r["docc1"]:10.6f}  '
+              f'{r["iters"]:6d}  {r["dp"]:10.2e}')
         sys.stdout.flush()
-        results.append(r); xp = r['x'].copy()
+        results.append(r)
+        # If divergence guard fired, reset warm-start to x0 so the bad
+        # parameters don't cascade into every subsequent T-point.
+        xp = x0.copy() if r['dp'] > 50.0 else r['x'].copy()
 
     return results
