@@ -233,6 +233,13 @@ def solve_T(T, x0, Uval=1.3, z=4.0, M=1, nquad=200,
     eps2 = np.full(M, -0.01); V2 = np.full(M, 0.01)
     docc = 0.25
 
+    # Plateau detector: tracks dp over a window to catch noise-floor stall.
+    # With finite nquad the k-sum has ~O(1/nquad^2) roundoff; dp can't drop
+    # below that floor no matter how many iterations we run.
+    _dp_window = []
+    _PLATEAU_WIN = 20   # iterations to look back
+    _PLATEAU_REL = 0.02  # stop if dp changed <2% over the window
+
     for it in range(1, maxiter + 1):
 
         # Step 1: Lattice → h-targets
@@ -352,10 +359,17 @@ def solve_T(T, x0, Uval=1.3, z=4.0, M=1, nquad=200,
             print(f'  it={it:3d}  dp={dp:.2e}  docc={docc:.8f}  '
                   f'docc1={imp1["docc"]:.6f}  docc2={imp2["docc"]:.6f}')
 
-        # Divergence guard: if parameters are exploding, stop before mixing
-        # poisons the warm-start for the next temperature point.
+        # Divergence guard: stop before mixing poisons the warm-start.
         if dp > 50.0:
             break
+
+        # Plateau detector: dp has hit the k-sum noise floor (~1/nquad²) and
+        # will never reach tol no matter how many more iterations we run.
+        _dp_window.append(dp)
+        if len(_dp_window) > _PLATEAU_WIN:
+            _dp_window.pop(0)
+            if (max(_dp_window) - min(_dp_window)) / max(_dp_window) < _PLATEAU_REL:
+                break
 
         W    = mix * W_new    + (1 - mix) * W
         W1   = mix * W1_new   + (1 - mix) * W1
