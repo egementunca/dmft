@@ -134,6 +134,22 @@ Per iteration:
 4a. Fit `eta1, W1, eta2, W2, W` via g-sector matching + moment conditions.
 4b. Fit `t_g` from `g2hop`.
 
+**Convergence parameters:**
+
+| M | Recommended mix | Notes |
+|---|-----------------|-------|
+| 1 | 0.1 | Works; matches professor's standalone code |
+| 2 | **0.03** | 0.1 causes a 2-cycle at high T (verified job 4273760) |
+
+**Divergence guard:** `solve_T` breaks the iteration early if `dp > 50` (before
+applying the mixing update). This prevents a basin-escape event at one temperature
+from poisoning the warm-start for the next temperature via extreme parameter values.
+
+**Two fixed points:** The iteration has a physical fixed point (docc ≈ 0.21
+at high T, decreasing to ~0.18 at low T) and a trivial fixed point (docc1 ≈ 0.249569,
+corresponding to collapsed bath couplings). The trivial attractor becomes competitive
+below T ≈ 0.12 for M=1; professor's reference code shows the same behavior there.
+
 ## 4) Solver Interface
 
 Variant A/B impurity solvers (`src/dmft/solvers/`) implement:

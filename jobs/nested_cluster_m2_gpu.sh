@@ -30,8 +30,10 @@ python3 -c "import cupy; cupy.cuda.Device(0).use(); print('CuPy OK:', cupy.__ver
 
 # Ghost Nested Cluster, M=2, GPU-accelerated
 # Matches professor's parameters: mix=0.1, maxiter=5000, nT=100, T=2.0->0.05
+# mix=0.03: M=2 has 16 bath params vs M=1's 8; mix=0.1 causes a 2-cycle at
+# high T that never exits (verified in job 4273760 run). Smaller mix converges.
 python3 scripts/run_nested_cluster.py \
   --M 2 --U 1.3 --nquad 50 \
   --nT 100 --T_max 2.0 --T_min 0.05 \
-  --mix 0.1 --maxiter 5000 --tol 1e-9 \
+  --mix 0.03 --maxiter 5000 --tol 1e-9 \
   --sweep --verbose

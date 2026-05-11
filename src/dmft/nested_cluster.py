@@ -348,6 +348,15 @@ def solve_T(T, x0, Uval=1.3, z=4.0, M=1, nquad=200,
         x_old = np.concatenate([W, W1, W2, t_h, t_g])
         dp = float(np.linalg.norm(x_new - x_old))
 
+        if verbose:
+            print(f'  it={it:3d}  dp={dp:.2e}  docc={docc:.8f}  '
+                  f'docc1={imp1["docc"]:.6f}  docc2={imp2["docc"]:.6f}')
+
+        # Divergence guard: if parameters are exploding, stop before mixing
+        # poisons the warm-start for the next temperature point.
+        if dp > 50.0:
+            break
+
         W    = mix * W_new    + (1 - mix) * W
         W1   = mix * W1_new   + (1 - mix) * W1
         W2   = mix * W2_new   + (1 - mix) * W2
@@ -358,9 +367,6 @@ def solve_T(T, x0, Uval=1.3, z=4.0, M=1, nquad=200,
         eps1 = eps1_new; V1 = V1_new
         eps2 = eps2_new; V2 = V2_new
 
-        if verbose:
-            print(f'  it={it:3d}  dp={dp:.2e}  docc={docc:.8f}  '
-                  f'docc1={imp1["docc"]:.6f}  docc2={imp2["docc"]:.6f}')
         if dp < tol:
             break
 
