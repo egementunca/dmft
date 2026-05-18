@@ -2,6 +2,15 @@
 
 SGE templates for BU SCC runs.
 
+## BHFM2 Canonical + Parity (Latest)
+
+Use this as the single run guide for current BHFM2 studies:
+- [BHFM2_SCC_INSTRUCTIONS.md](BHFM2_SCC_INSTRUCTIONS.md)
+
+Related scripts:
+- Prof baseline: `bhfm2_m2_sweep.sh`, `bhfm2_m2_doping.sh`
+- Internal parity: `bhfm2_internal_m2_sweep.sh`, `bhfm2_internal_m2_doping.sh`
+
 ## Ghost Nested Cluster (April 2026, current)
 
 BPK combination of single-site + two-site clusters with moment conditions.

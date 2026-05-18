@@ -4,6 +4,7 @@ This directory keeps project documentation organized by purpose.
 
 ## Keep Open Often
 - [Project Code Documentation](../results/reports/CODE_DOCUMENTATION.md)
+- [BHFM2 Canonical Study Map](../results/reports/BHFM2_CANONICAL_STUDY_MAP.md)
 - [Full Picture Workbook (study reference)](../results/reports/two_ghost_dmft_full_picture_workbook.md)
 
 ## Notes
@@ -17,6 +18,7 @@ This directory keeps project documentation organized by purpose.
 - [Phase Scan Critical Review](reports/PHASE_SCAN_CRITICAL_REVIEW.md)
 
 ## Cluster / Operations
+- [BHFM2 SCC Latest Runbook](../jobs/BHFM2_SCC_INSTRUCTIONS.md)
 - [GPU Feasibility Report (Bond scheme, March 2026)](gpu_feasibility_report.md)
 - [Job Templates Index](../jobs/README.md)
 - [GPU Cluster Setup Guide](../jobs/GPU_CLUSTER_README.md)
